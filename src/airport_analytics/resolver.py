@@ -76,6 +76,18 @@ class Resolver:
                 return Resolution(term, "airport", [aid], [self.describe(aid)], al["note"])
             g = self.group({**dict(al["group"]), "min_enplanements": 10000})
             return Resolution(term, "group", g["airport_ids"], [{"kind": "group", "group": al["group"]}], al["note"])
+        if "," in t:                                   # "Portland, Maine" / "Portland, ME": city qualified by state
+            city, st = (x.strip() for x in t.split(",", 1))
+            abbr = next((r["state"] for r in self.rows if r["country"] == "US" and st and
+                         (st.upper() == (r["state"] or "") or st.lower() == (r["state_name"] or "").lower())), None)
+            if city and abbr:
+                base = self.resolve_term(city)
+                pool = [c for c in base.candidates if c.get("kind", "airport") == "airport" and c.get("state") == abbr]
+                pool.sort(key=lambda c: -(c.get("enplanements_latest_cy") or 0))
+                if pool:
+                    others = [c["code"] for c in pool[1:4]]
+                    return Resolution(term, "airport", [pool[0]["airport_id"]], pool[:4],
+                                      f"'{term}' read as {pool[0]['code']}" + (f"; other airports there: {others}" if others else ""))
         exact = [r for r in self.rows if up == r["code"] or up in (r["all_codes"] or []) or up == r["faa_lid"]
                  or up == r["icao"]]
         exact_us = [r for r in exact if r["country"] == "US"] or exact

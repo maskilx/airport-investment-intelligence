@@ -68,7 +68,7 @@ def _catalog(s: Session, a: dict) -> Any:
         m = METRICS.get(a["metric"])
         if not m:
             return {"error": "unknown_metric", "known": sorted(METRICS)}
-        facts = sorted({MEASURES[n].fact for n in _names(m)} or {m.custom_fact})
+        facts = sorted({MEASURES[n].fact for n in _names(m)} or {m.custom_fact or ("t100_dep" if m.expr == "LONG_HAUL" else None)} - {None})
         return {"id": m.id, "name": m.name, "unit": m.unit, "class": m.epistemic_class, "definition": m.definition,
                 "formula": m.expr, "formula_version": m.formula_version, "params": [p.__dict__ for p in m.params],
                 "facts": {f: {"description": FACTS[f].description, "time": FACTS[f].time_kind,
@@ -276,7 +276,8 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          _finding),
     Tool("compose_answer",
          "Validate and render the final answer. answer = {headline, body, claims:[{kind: fact|inference|hypothesis, text, "
-         "support:[F#]}], assumptions:[...], limitations:[...]}. Write every number as a placeholder {F#} (or {F#.period}, "
+         "support:[F#]}], assumptions:[...], limitations:[...], charts:[{type: auto|bar|line|scatter|table, title, findings:[F#...]}]}. "
+         "Charts take their values from the cited findings (comparisons -> bar, monthly series -> line). Write every number as a placeholder {F#} (or {F#.period}, "
          "{F#.label}); literal numbers are rejected. Evidence, methodology and caveats are appended automatically.",
          {"type": "object", "properties": {"answer": {"type": "object"}}, "required": ["answer"]}, _compose),
 ]}

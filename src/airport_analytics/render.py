@@ -90,7 +90,8 @@ def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str]
     texts = {"headline": answer["headline"], "body": answer["body"],
              **{f"claims[{i}]": c.get("text", "") for i, c in enumerate(answer.get("claims", []))},
              **{f"assumptions[{i}]": a for i, a in enumerate(answer.get("assumptions", []))},
-             **{f"limitations[{i}]": a for i, a in enumerate(answer.get("limitations", []))}}
+             **{f"limitations[{i}]": a for i, a in enumerate(answer.get("limitations", []))},
+             **{f"charts[{i}].title": (c or {}).get("title", "") for i, c in enumerate(answer.get("charts", []) or [])}}
     for where, t in texts.items():
         for fid, _ in PH.findall(t or ""):
             if fid not in store:
@@ -113,6 +114,13 @@ def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str]
                     subj = store.get(fid).subject.get("airport_code")
                     if subj and codes and subj not in codes:
                         errs.append(f"{where}: {fid} is about {subj} but the sentence names {sorted(codes)}")
+    for i, c in enumerate(answer.get("charts", []) or []):
+        if not isinstance(c, dict) or not isinstance(c.get("findings"), list) or not c["findings"]:
+            errs.append(f"charts[{i}]: a chart needs findings:[F#, ...] (values are taken from the evidence store)")
+            continue
+        for fid in c["findings"]:
+            if fid not in store:
+                errs.append(f"charts[{i}]: {fid} is not a finding from this session")
     for i, c in enumerate(answer.get("claims", [])):
         kind = c.get("kind")
         if kind not in ("fact", "inference", "hypothesis"):
@@ -183,4 +191,12 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
         lim = answer.get("limitations", [])
         if cav or lim:
             lines += ["", "**Caveats and limitations**"] + [f"- {c}" for c in cav] + [f"- {r(x)}" for x in lim]
-    return {"markdown": "\n".join(lines), "cited_findings": ids}
+    charts = [c for c in answer.get("charts", []) or [] if isinstance(c, dict)]
+    ids = list(dict.fromkeys(ids + [f for c in charts for f in c["findings"]]))
+    structured = {"headline": r(answer["headline"]), "body": r(answer["body"]),
+                  "claims": [{"kind": c["kind"], "text": r(c["text"]), "support": c.get("support") or []} for c in claims],
+                  "assumptions": [r(a) for a in answer.get("assumptions", [])],
+                  "limitations": [r(x) for x in answer.get("limitations", [])],
+                  "evidence": list(dict.fromkeys([f.id for f in expanded] + ids)),
+                  "charts": charts}
+    return {"markdown": "\n".join(lines), "cited_findings": ids, "structured": structured}

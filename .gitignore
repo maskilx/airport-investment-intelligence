@@ -7,3 +7,5 @@ __pycache__/
 data/db/
 data/tmp/
 .DS_Store
+# Runtime state (conversations, usage logs) — local only
+data/app/

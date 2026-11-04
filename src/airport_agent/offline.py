@@ -1,0 +1,317 @@
+"""OfflineBackend: a deterministic, rule-based planner that speaks the same tool protocol as an LLM.
+
+Purpose: run and demo the whole product (API, UI, memory, charts, evidence) with zero model calls and zero cost, and
+exercise the runtime end-to-end in tests. It is NOT an LLM and is clearly labelled as such in every answer: it understands
+a fixed set of question intents (screening, congestion comparison, long-haul share, unmet-demand indicators, trends,
+named metrics) plus follow-ups that refer to entities in the conversation memory. Everything else gets an honest
+"needs the LLM backend" reply. All numbers still come from the engine and pass the same grounding validator.
+"""
+from __future__ import annotations
+
+import json
+import re
+import uuid
+from typing import Any
+
+from .models import ModelResponse, Usage
+
+LABEL = "Offline demo planner (rule-based, no LLM)"
+STOP = {"What", "Which", "Who", "How", "Why", "When", "Where", "Compare", "Show", "Tell", "Give", "List", "Rank", "Is",
+        "Are", "Does", "Do", "Did", "Can", "Could", "And", "The", "A", "An", "In", "Of", "For", "At", "Out", "From", "Me",
+        "Please", "Actually", "Also", "Now", "Then", "Same", "That", "Those", "It", "Its", "Their", "Them", "What's",
+        "I", "We", "Let", "Okay", "Ok", "Yes", "No", "Thanks", "Airport", "Airports", "US", "FAA", "BTS", "TAF", "T12",
+        "Terminal", "Expansion", "Congestion", "Unmet", "Demand", "Flights", "Long", "Haul", "Versus", "Vs", "Between",
+        "Instead", "Meant", "Mean", "Use", "Look", "Trend", "Over", "Time", "Monthly"}
+US_STATES = None
+INTENT_WORDS = [
+    ("screen", r"\b(expan|candidate|invest|opportunit|screen|modern|best airports?|strong)\w*"),
+    ("congestion", r"\b(congest|crowd|busy|busier|delay|capacity constrain|peak)\w*"),
+    ("long_haul", r"\blong[- ]?haul\b"),
+    ("unmet", r"\b(unmet|pent[- ]up|latent|suppressed) demand\b|\bunmet\b"),
+    ("trend", r"\b(trend|over time|monthly|month by month|series)\b"),
+]
+METRIC_WORDS = [
+    ("seat_factor", r"seat factor|load factor"), ("passengers", r"passenger|enplanement|traffic|boarding"),
+    ("seats", r"\bseats\b"), ("departures", r"departures"), ("dep_delay15_rate", r"delay rate|delays?\b"),
+    ("cancel_rate", r"cancel"), ("avg_taxi_out_min", r"taxi"), ("intl_seat_share", r"international"),
+    ("top_carrier_share", r"carrier concentration|dominant carrier|market share"),
+    ("tower_operations", r"operations|movements"), ("grants_awarded_usd", r"grant|\baip\b"),
+    ("npias_need_usd", r"npias|capital need|development need"), ("taf_enplanements", r"forecast"),
+    ("freight_lbs", r"freight|cargo"), ("avg_stage_length", r"stage length|distance"),
+]
+CORRECTION = re.compile(r"\b(actually|i meant|instead|not .* but|rather|correction|i mean)\b", re.I)
+REFERENCE = re.compile(r"\b(that|this|those|these|same|it|its|them|their|earlier|previous|before|first one|second one|"
+                       r"the airport|the other)\b", re.I)
+
+
+def _nice(key: str) -> str:
+    """Readable, digit-free name for a table column key such as 'dep_delay15_rate' or 'long_haul_share(min_miles=…)'."""
+    return re.sub(r"\s+", " ", re.sub(r"\d+", "", key.split("(")[0].split(":")[-1]).replace("_", " ")).strip()
+
+
+def _blocks(m) -> list[dict]:
+    return m["content"] if isinstance(m["content"], list) else [{"type": "text", "text": m["content"]}]
+
+
+def _tu(name: str, inp: dict) -> dict:
+    return {"type": "tool_use", "id": "off_" + uuid.uuid4().hex[:8], "name": name, "input": inp}
+
+
+def _text(t: str) -> ModelResponse:
+    return ModelResponse([{"type": "text", "text": t}], "end_turn", Usage(requests=1), "offline")
+
+
+def _calls(blocks: list[dict]) -> ModelResponse:
+    return ModelResponse(blocks, "tool_use", Usage(requests=1), "offline")
+
+
+class OfflineBackend:
+    name = "offline"
+
+    # ------------------------------------------------------------------ protocol
+    def complete(self, system: str, messages: list[dict], tools: list[dict]) -> ModelResponse:
+        qi = max(i for i, m in enumerate(messages) if m["role"] == "user" and any(
+            b.get("type") == "text" and not b["text"].startswith("System:") for b in _blocks(m)))
+        raw = next(b["text"] for b in reversed(_blocks(messages[qi])) if b.get("type") == "text")
+        memory, q = (raw.split("## Current question\n", 1) if "## Current question\n" in raw else ("", raw))
+        done = self._done(messages[qi:])
+        prev = [b["text"] for m in messages[:qi] if m["role"] == "user" for b in _blocks(m)
+                if b.get("type") == "text" and not b["text"].startswith(("System:", "["))]
+        return self._plan(q.strip(), memory, done, prev[-1].split("## Current question\n")[-1] if prev else "")
+
+    @staticmethod
+    def _done(msgs: list[dict]) -> list[tuple[dict, Any]]:
+        uses, out = {}, []
+        for m in msgs:
+            for b in _blocks(m):
+                if b.get("type") == "tool_use":
+                    uses[b["id"]] = b
+                elif b.get("type") == "tool_result" and b.get("tool_use_id") in uses:
+                    try:
+                        res = json.loads(b["content"])
+                    except (ValueError, TypeError):
+                        res = b.get("content")
+                    out.append((uses[b["tool_use_id"]], res))
+        return out
+
+    # ------------------------------------------------------------------ planning
+    def _plan(self, q: str, memory: str, done: list, prev_q: str = "") -> ModelResponse:
+        intent = next((k for k, rx in INTENT_WORDS if re.search(rx, q, re.I)), None)
+        if not intent and CORRECTION.search(q) and prev_q:          # a correction keeps the previous question's intent
+            intent = next((k for k, rx in INTENT_WORDS if re.search(rx, prev_q, re.I)), None)
+        metrics = [m for m, rx in METRIC_WORDS if re.search(rx, q, re.I)]
+        focus_t = [(c, int(f), int(l)) for c, f, l in
+                   re.findall(r"\b([A-Z][A-Z0-9]{2,3}) \(airport, first turn (\d+), last turn (\d+)\)", memory)]
+        focus = [c for c, _, _ in focus_t]                      # most recent first
+        if re.search(r"\b(first|earliest|originally)\b", q, re.I) and focus_t:
+            earliest = min(focus_t, key=lambda x: (x[1], -x[2]))[0]
+            if re.search(r"\b(compare|versus|vs|against|with)\b", q, re.I) and REFERENCE.search(q):
+                focus = list(dict.fromkeys([focus[0], earliest]))     # "that" (latest) vs "the first one"
+            else:
+                focus = [earliest] + [c for c in focus if c != earliest]
+        groups = re.findall(r"(\{[^{}]*\}) \(group", memory)
+        prev_metrics = re.findall(r"Metrics used: ([^\n]+)", memory)
+        prev_metrics = [m.strip() for m in prev_metrics[0].split(",")] if prev_metrics else []
+        terms = self._terms(q)
+        names = [u["name"] for u, _ in done]
+
+        # 1) resolve named places (and record a correction as an assumption)
+        if terms and "resolve_entities" not in names:
+            calls = [_tu("resolve_entities", {"terms": terms})]
+            if CORRECTION.search(q):
+                calls.append(_tu("update_memory", {"action": "set_assumption",
+                                                    "text": "User correction: " + re.sub(r"\d", "#", q)[:200]}))
+            return _calls(calls)
+        airports, group, region_label = [], None, ""
+        for u, res in done:
+            if u["name"] != "resolve_entities" or not isinstance(res, dict):
+                continue
+            for r in res.get("resolutions", []):
+                if r.get("kind") == "ambiguous":
+                    opts = ", ".join(f"{c['code']} ({c.get('city', '')})" for c in r["candidates"] if c.get("code"))[:300]
+                    return _text(f"“{r['term']}” matches more than one airport: {opts}. Which one do you mean?")
+                if r.get("kind") == "unknown":
+                    return _text(f"I could not find an airport, city or region called “{r['term']}” in the data. "
+                                 "Could you give the airport code or the city and state?")
+                if r.get("kind") == "airport":
+                    c = next((c for c in r["candidates"] if c.get("airport_id") in r["airport_ids"] and c.get("code")), None)
+                    if c:
+                        airports.append(c["code"])
+                elif r.get("kind") == "group":
+                    g = next((c.get("group") for c in r["candidates"] if c.get("group")), None)
+                    if g:
+                        group, region_label = g, r["term"]
+        # 2) references to earlier entities
+        if not airports and not group:
+            if focus and (REFERENCE.search(q) or not terms):
+                airports = focus[:2] if re.search(r"\b(both|compare|them|those|these)\b", q, re.I) else focus[:1]
+            elif groups and intent == "screen":
+                group = json.loads(groups[0])
+        elif REFERENCE.search(q) and focus and re.search(r"\b(compare|versus|vs|against|with)\b", q, re.I):
+            airports = list(dict.fromkeys(airports + [c for c in focus if c not in airports][:1]))
+        if not intent and not metrics and prev_metrics:
+            metrics = [m for m in prev_metrics if m != "screen_score"][:4]
+            if "screen_score" in prev_metrics and not metrics:
+                intent = "screen"
+        if not airports and not group:
+            if intent == "screen":
+                return _text("Which region or state should I screen for terminal-expansion candidates (for example "
+                             "New England, Texas or the Pacific division)?")
+            return _text("Which airport or region should I analyze? You can use a code (SFO), a city, or a region.")
+
+        analyses = [(u, r) for u, r in done if u["name"] == "run_analysis"]
+        if not analyses:
+            specs = self._specs(intent, metrics, airports, group)
+            if not specs:
+                return _text(f"[{LABEL}] I can run screening, congestion, long-haul, unmet-demand indicators, trends and "
+                             "named metrics offline. This question needs the LLM backend (set AIRPORT_MODEL=gemini).")
+            return _calls([_tu("run_analysis", {"spec": s}) for s in specs])
+        composes = [(u, r) for u, r in done if u["name"] == "compose_answer"]
+        if composes:      # our own compose failed validation -> never show numbers; explain
+            errs = (composes[-1][1] or {}).get("errors", []) if isinstance(composes[-1][1], dict) else []
+            return _text(f"[{LABEL}] The answer draft did not pass grounding validation"
+                         f"{' (details in the trace)' if errs else ''}; please rephrase.")
+        return _calls([_tu("compose_answer", {"answer": self._compose(intent, q, analyses, airports, region_label)})])
+
+    @staticmethod
+    def _terms(q: str) -> list[str]:
+        out = []
+        for m in re.finditer(r"\b([A-Z][A-Za-z.]*(?:[ -][A-Z][A-Za-z.]*)*)(?:,\s*([A-Z][A-Za-z]+(?: [A-Z][a-z]+)?))?", q):
+            phrase = m.group(1)
+            words = [w for w in phrase.split() if w not in STOP]
+            if not words:
+                continue
+            p = " ".join(words)
+            if m.group(2) and m.group(2) not in STOP:
+                p += ", " + m.group(2)
+            if len(p) >= 2 and p not in out:
+                out.append(p)
+        return out[:6]
+
+    @staticmethod
+    def _specs(intent, metrics, airports, group) -> list[dict]:
+        ent = {"airports": airports} if airports else {"group": group}
+        gb = ["airport"] if len(airports) > 1 or group else []
+        if intent == "screen":
+            return [{"op": "screen", "entities": ent if group else {"airports": airports}}]
+        if intent == "congestion":
+            return [{"op": "aggregate", "entities": ent, "group_by": gb,
+                     "metrics": ["dep_delay15_rate", "avg_taxi_out_min", "peak_hour_ops_p95", "tower_operations",
+                                 "nas_delay_min_per_arrival"]}]
+        if intent == "long_haul":
+            return [{"op": "aggregate", "entities": ent, "group_by": gb, "metrics": [
+                {"id": "long_haul_share", "params": {"weight": "departures"}},
+                {"id": "long_haul_share", "params": {"weight": "passengers"}},
+                {"id": "long_haul_share", "params": {"weight": "departures", "min_miles": 2400}},
+                "intl_seat_share", "avg_stage_length"]}]
+        if intent == "unmet":
+            return [{"op": "aggregate", "entities": ent, "group_by": gb, "metrics": [
+                "seat_factor", "tight_capacity_pax_share", "peak_hour_ops_p95", "dep_delay15_rate",
+                {"id": "passengers", "transform": {"type": "pct_change"}}, "top_carrier_share"]},
+                {"op": "forecast_vs_actual", "entities": ent, "options": {"quantity": "enplanements"}}]
+        if intent == "trend":
+            return [{"op": "trend", "entities": ent, "metrics": (metrics or ["passengers"])[:2]}]
+        if metrics:
+            return [{"op": "aggregate", "entities": ent, "group_by": gb, "metrics": metrics[:5]}]
+        return []
+
+    # ------------------------------------------------------------------ answer composition (placeholders only)
+    def _compose(self, intent, q, analyses, airports, region) -> dict:
+        ok = [(u, r) for u, r in analyses if isinstance(r, dict) and not r.get("error")]
+        errs = [r for _, r in analyses if isinstance(r, dict) and r.get("error")]
+        lim = [f"{LABEL}: answers follow fixed templates; use the LLM backend for open-ended reasoning."]
+        for e in errs:
+            lim.append(f"Not established: {e.get('error')} — " + re.sub(r"\d", "#", str(e.get("message", "")))[:200])
+        if not ok:
+            return {"headline": "This could not be established from the data",
+                    "body": "The analyses needed for this question returned errors; see the limitations below.",
+                    "limitations": lim}
+        if intent == "screen":
+            return self._compose_screen(ok[0][1], region, lim)
+        cells = []                                # (airport, metric_key, fid)
+        for _, r in ok:
+            for row in r.get("table", []) if r.get("op") != "trend" else []:
+                ap = row.get("airport") or (airports[0] if len(airports) == 1 else None)
+                for k, v in row.items():
+                    if isinstance(v, dict) and "id" in v:
+                        cells.append((ap, k, v["id"]))
+            if r.get("op") == "trend":
+                for s in r.get("summary", []):
+                    cells.append((s.get("airport"), "slope", s["slope_per_month"]["id"]))
+        by_ap: dict[str, list[str]] = {}
+        for ap, _, fid in cells:
+            by_ap.setdefault(ap or "the selected airports", []).append(fid)
+        body = []
+        for ap, fids in by_ap.items():
+            body.append(f"**{ap}**: " + "; ".join(f"{{{f}.label}}: {{{f}}}" for f in fids[:8]) + ".")
+        claims = [{"kind": "fact", "text": f"{{{f}.label}} is {{{f}}}.", "support": [f]} for _, _, f in cells[:12]]
+        charts = []
+        if len(by_ap) > 1:
+            metric_keys = list(dict.fromkeys(k for _, k, _ in cells))
+            for mk in metric_keys[:3]:
+                fids = [f for _, k, f in cells if k == mk]
+                vals = {}
+                for _, row_r in ok:
+                    for row in row_r.get("table", []):
+                        if isinstance(row.get(mk), dict):
+                            vals[row.get("airport")] = (row[mk]["id"], row[mk].get("value"))
+                if len(fids) > 1:
+                    charts.append({"type": "bar", "title": "", "findings": fids})
+                    hi = [a for a, (f, v) in vals.items() if isinstance(v, (int, float)) and v == max(
+                        x[1] for x in vals.values() if isinstance(x[1], (int, float)))]
+                    if hi and len(vals) > 1:
+                        claims.append({"kind": "inference", "text": f"{hi[0]} has the highest value on this measure "
+                                       f"({_nice(mk)}) among the airports compared.",
+                                       "support": [vals[a][0] for a in vals]})
+        trend = [r for _, r in ok if r.get("op") == "trend"]
+        if trend and trend[0].get("table"):
+            fids = [v["id"] for row in trend[0]["table"] for k, v in row.items() if isinstance(v, dict) and "id" in v]
+            charts.append({"type": "line", "title": "Monthly series", "findings": fids})
+        head = {"congestion": "Congestion indicators", "long_haul": "Long-haul share of departures",
+                "unmet": "Indicators of unmet demand", "trend": "Trend"}.get(intent, "Requested metrics")
+        ans = {"headline": f"{head}: {', '.join(a for a in by_ap if a)}", "body": "\n\n".join(body), "claims": claims,
+               "assumptions": [], "limitations": lim, "charts": charts}
+        if intent == "congestion":
+            ans["assumptions"].append("Congestion is read from airside indicators (delay rate, taxi-out, scheduled "
+                                      "peak hour, tower operations); terminal/landside congestion is not in the data.")
+        if intent == "long_haul":
+            ans["assumptions"].append("Long-haul is defined by segment distance; the alternative thresholds and weights "
+                                      "are shown because the question's definition is open.")
+        if intent == "unmet":
+            ans["claims"].append({"kind": "hypothesis", "text": "High seat factors, a large share of passengers on "
+                                  "capacity-tight routes and a busy scheduled peak are consistent with demand exceeding "
+                                  "supply, but unmet demand itself is not observed in this data.", "support": []})
+            ans["limitations"].append("Unmet demand is not directly measurable here (no fares, spill or booking data).")
+        return ans
+
+    @staticmethod
+    def _compose_screen(r: dict, region: str, lim: list[str]) -> dict:
+        rows = r.get("table", [])[:8]
+        lines, claims, fids = [], [], []
+        for row in rows:
+            c = row["components"]
+            flags = ", ".join(f["flag"] for f in row.get("flags", [])) or "none"
+            tie = " (tied with the previous airport)" if row.get("tied_with_previous") else ""
+            lines.append(f"- **{row['airport']}**{tie}: score {{{row['score']['id']}}}; incremental TAF enplanements "
+                         f"{{{c['incremental_enplanements']['input']['id']}}}, realized growth "
+                         f"{{{c['realized_growth']['input']['id']}}}, market income {{{c['market_income']['input']['id']}}}; "
+                         f"flags: {flags}.")
+            fids.append(row["score"]["id"])
+            claims.append({"kind": "fact", "text": f"{row['airport']} screens at {{{row['score']['id']}}}.",
+                           "support": [row["score"]["id"]]})
+        shift = r.get("max_rank_shift_across_scenarios") or {}
+        stable = [a for a, s in shift.items() if s == 0]
+        if stable:
+            claims.append({"kind": "inference", "text": f"The position of {', '.join(stable)} does not change across the "
+                           "weighting scenarios, so it is robust to the weight choice.", "support": fids[:3]})
+        below = [b["airport"] for b in (r.get("gate") or {}).get("below_scale", [])]
+        if below:
+            lim.append("Below the passenger-scale gate and not scored: " + ", ".join(below) + ".")
+        lim.append(r.get("disclaimer", ""))
+        return {"headline": f"Terminal-expansion screening candidates{' in ' + region if region else ''}",
+                "body": "Airports in rank order (base scenario):\n\n" + "\n".join(lines),
+                "claims": claims,
+                "assumptions": ["Screen weights and anchors are the documented base scenario (config/screening.toml); "
+                                "a screening rank, not a valuation."],
+                "limitations": [x for x in lim if x],
+                "charts": [{"type": "bar", "title": "Expansion screen score (base scenario)", "findings": fids}]}
