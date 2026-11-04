@@ -57,9 +57,19 @@ class BuildResult:
 
 
 def _git_rev() -> str | None:
+    """HEAD plus '-dirty' when the build code or its inputs differ from HEAD: a clean stamp must mean the committed code
+    produced this database (a build from uncommitted fixes was once stamped with the pre-fix revision)."""
     try:
-        return subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
-                              cwd=Path(__file__).parent, timeout=5).stdout.strip() or None
+        here = Path(__file__).parent
+        rev = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
+                             cwd=here, timeout=5).stdout.strip()
+        if not rev:
+            return None
+        root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+                              cwd=here, timeout=5).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", "src/airport_data", "config", "data/curated",
+                                "data/reference"], capture_output=True, text=True, cwd=root, timeout=5).stdout.strip()
+        return rev + ("-dirty" if dirty else "")
     except Exception:
         return None
 

@@ -109,6 +109,18 @@ class Engine:
             "SELECT source_id, period, vintage_id FROM ingest_manifest WHERE selected ORDER BY 1, 2").fetchall()
         self.taf_last_historical = self.con.execute(
             "SELECT max(fiscal_year) FROM v_taf_enplanements WHERE record_type = 'historical'").fetchone()[0]
+        self.build = self._build_fingerprint()
+
+    def _build_fingerprint(self) -> dict[str, Any]:
+        """Identity of the data build every finding was computed from (recorded in execution envelopes)."""
+        try:
+            cur = self.con.execute("SELECT * FROM build_info")
+            row = cur.fetchone()
+            d = dict(zip([c[0] for c in cur.description], row)) if row else {}
+        except Exception:
+            d = {}
+        return {"raw_fingerprint": str(d.get("selected_raw_fingerprint") or "")[:16], "git_rev": d.get("git_rev"),
+                "rules_version": d.get("rules_version"), "built_at": d.get("built_at")}
 
     # ------------------------------------------------------------ helpers used by custom metrics
     @staticmethod

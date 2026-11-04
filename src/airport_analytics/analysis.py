@@ -6,6 +6,7 @@ of such findings, and is registered in the EvidenceStore with its inputs.
 """
 from __future__ import annotations
 
+import copy
 import math
 import random
 import tomllib
@@ -15,7 +16,7 @@ from typing import Any
 from airport_data.config import REPO_ROOT
 
 from .engine import Engine, MetricRef
-from .evidence import EvidenceStore, Finding, InsufficientData, InvalidSpec, NotApplicable
+from .evidence import EvidenceStore, Finding, InsufficientData, InvalidSpec, NotApplicable, file_hash
 from .resolver import Resolver
 from .semantic import CATALOG_VERSION, CAVEATS, METRICS
 
@@ -251,11 +252,16 @@ def run_analysis(spec: dict[str, Any], ctx: Context) -> dict[str, Any]:
     if op in ("aggregate", "rank", "trend", "anomaly", "distribution") and not spec.get("metrics") \
             and not (op == "rank" and (spec.get("options") or {}).get("criteria")):
         raise InvalidSpec(f"spec.metrics is required for op {op}")
+    original = copy.deepcopy(spec)                       # replay uses exactly what was asked, not a reconstruction
+    n0 = len(ctx.store)
     ids, notes = ctx.resolver.entities(spec.get("entities") or {})
     fn = {"aggregate": _op_aggregate, "rank": _op_rank, "correlate": _op_correlate, "trend": _op_trend,
           "anomaly": _op_anomaly, "distribution": _op_distribution, "forecast_vs_actual": _op_fva,
           "screen": _op_screen}[op]
     result = fn(spec, ids, notes, ctx)
+    env = execution_envelope("run_analysis", op, original, ids, ctx)
+    for f in ctx.store.added_since(n0):
+        f.execution = dict(env, result_key=f.result_key())
     result["entities"] = notes
     if notes.get("engine_notes"):
         result["notes"] = notes.pop("engine_notes")
@@ -264,6 +270,17 @@ def run_analysis(spec: dict[str, Any], ctx: Context) -> dict[str, Any]:
         result["findings"] = result["findings"][:MAX_FINDINGS]
         result["truncated"] = f"{n} findings; first {MAX_FINDINGS} returned (narrow the spec)"
     return result
+
+
+def execution_envelope(tool: str, op: str, spec: dict, ids: list[int] | None, ctx: Context) -> dict[str, Any]:
+    """Everything needed to replay the original operation and to tell whether a replay is comparable."""
+    env = {"tool": tool, "op": op, "spec": spec, "resolved_airport_ids": sorted(int(i) for i in ids or []),
+           "catalog_version": CATALOG_VERSION, "build": getattr(ctx.engine, "build", {})}
+    if op == "screen":
+        cfg = load_screening()
+        env["screening"] = {"model_version": cfg["model_version"], "config_hash": file_hash(SCREENING_PATH),
+                            "scenario": (spec.get("options") or {}).get("scenario", "base")}
+    return env
 
 
 def _default_group(spec, ids):
@@ -556,8 +573,11 @@ def _op_fva(spec, ids, notes, ctx):
 
 
 # ------------------------------------------------------------------ screening model
+SCREENING_PATH = REPO_ROOT / "config" / "screening.toml"
+
+
 def load_screening(path=None) -> dict:
-    return tomllib.loads((path or REPO_ROOT / "config" / "screening.toml").read_text())
+    return tomllib.loads((path or SCREENING_PATH).read_text())
 
 
 def _op_screen(spec, ids, notes, ctx):

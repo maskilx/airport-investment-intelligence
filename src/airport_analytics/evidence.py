@@ -76,8 +76,16 @@ class Finding:
     caveats: list[str] = field(default_factory=list)
     coverage: dict[str, Any] | None = None
     inputs: list[str] = field(default_factory=list)     # finding ids this one derives from
-    spec: dict[str, Any] | None = None                  # reproducing analysis spec
+    spec: dict[str, Any] | None = None                  # reproducing analysis spec (partial; see execution)
     catalog_version: str = ""
+    # Execution envelope: everything needed to replay the ORIGINAL operation (tool, op, full spec, resolved entity
+    # ids, scenario, config hash, data build fingerprint). Set by the tool layer, never by the model.
+    execution: dict[str, Any] | None = None
+    # Assumption dependencies (A# ids active when this finding was produced, plus structured parameter bindings).
+    assumptions: list[str] = field(default_factory=list)
+    # current | stale. A stale finding may be inspected but never cited (render.validate enforces it).
+    status: str = "current"
+    status_reason: str = ""
 
     def brief(self) -> dict[str, Any]:
         """Compact form returned to the model."""
@@ -86,7 +94,14 @@ class Finding:
             d["coverage"] = self.coverage
         if self.caveats:
             d["caveats"] = self.caveats
+        if self.status != "current":
+            d["status"], d["status_reason"] = self.status, self.status_reason
         return d
+
+    def result_key(self) -> str:
+        """Identity of this result within its operation's output (used to find the counterpart on replay)."""
+        subj = {k: v for k, v in self.subject.items() if k != "rank"}
+        return f"{self.metric_id}|{json.dumps(subj, sort_keys=True, default=str)}|{self.window.get('label', '')}"
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -119,6 +134,21 @@ class EvidenceStore:
     def all(self) -> list[Finding]:
         return list(self._items.values())
 
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def added_since(self, n: int) -> list[Finding]:
+        """Findings registered after the store held `n` items (insertion order)."""
+        return list(self._items.values())[n:]
+
+    def current(self) -> list[Finding]:
+        return [f for f in self._items.values() if f.status == "current"]
+
 
 def spec_hash(spec: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(spec, sort_keys=True, default=str).encode()).hexdigest()[:12]
+
+
+def file_hash(path) -> str:
+    from pathlib import Path
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:12]

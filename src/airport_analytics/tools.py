@@ -5,11 +5,12 @@ Every handler returns JSON-serialisable data. Errors are returned as structured 
 """
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from .analysis import OPS, TRANSFORMS, Context, _new, run_analysis
+from .analysis import OPS, TRANSFORMS, Context, _new, execution_envelope, run_analysis
 from .engine import Engine
 from .evidence import AnalyticsError, EvidenceStore, InvalidSpec, SourceRef
 from .render import render, safe_label, validate
@@ -132,6 +133,7 @@ def _derive(s: Session, a: dict) -> Any:
              subject={"derived_from": ids}, window={"label": " | ".join(f.window.get("label", "") for f in fs)},
              sources=[x for f in fs for x in f.sources], caveats=list(dict.fromkeys(c for f in fs for c in f.caveats)),
              inputs=ids)
+    f.execution = dict(execution_envelope("derive", op, {"op": op, "findings": ids}, None, s.ctx), result_key=f.result_key())
     return f.brief()
 
 
@@ -195,6 +197,7 @@ def _sql(s: Session, a: dict) -> Any:
     rows = cur.fetchall()
     srcs = [SourceRef(VIEW_SOURCES[v], [], []) for v in sorted(refs & set(VIEW_SOURCES))]
     out_rows = []
+    n0 = len(s.ctx.store)
     for r in rows[:200]:
         cells = {}
         for c, v in zip(cols, r):
@@ -211,6 +214,9 @@ def _sql(s: Session, a: dict) -> Any:
             else:
                 cells[c] = None if v is None else str(v)
         out_rows.append(cells)
+    env = execution_envelope("query_sql", "sql", {"sql": q}, None, s.ctx)
+    for f in s.ctx.store.added_since(n0):
+        f.execution = dict(env, result_key=f.result_key())
     return {"columns": cols, "rows": out_rows, "truncated": len(rows) > 200,
             "note": "exploratory: values are registered as findings with class 'exploratory'"}
 
@@ -230,10 +236,62 @@ def _compose(s: Session, a: dict) -> Any:
 def _finding(s: Session, a: dict) -> Any:
     f = s.ctx.store.get(a["id"])
     d = f.to_dict()
-    if a.get("reproduce") and f.spec:
-        r = run_analysis(dict(f.spec, op="aggregate"), s.ctx)
-        d["reproduced"] = [x for x in r["findings"]][:3]
+    if a.get("reproduce"):
+        d["replay"] = replay(s, f)
     return d
+
+
+def _same(a: Any, b: Any) -> bool:
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return a == b or abs(a - b) <= 1e-9 * max(abs(a), abs(b), 1.0)
+    return a == b
+
+
+def replay(s: Session, f) -> dict[str, Any]:
+    """Re-execute the ORIGINAL operation recorded in the finding's execution envelope, in a scratch evidence store
+    (the session store is not touched), and compare the counterpart value. A generic aggregate is never substituted
+    for a rank/screen/trend: if the envelope is missing the finding is reported as not replayable."""
+    ex = f.execution
+    if not ex:
+        return {"replayable": False, "reason": "finding has no execution envelope (created before envelopes existed)"}
+    scratch = Context(s.engine, s.ctx.resolver, type(s.ctx.store)())
+    out: dict[str, Any] = {"replayable": True, "tool": ex["tool"], "op": ex["op"],
+                           "build_same": ex.get("build") == getattr(s.engine, "build", {}),
+                           "original_value": f.value}
+    try:
+        if ex["tool"] == "run_analysis":
+            run_analysis(copy.deepcopy(ex["spec"]), scratch)
+            ids_now, _ = s.ctx.resolver.entities(ex["spec"].get("entities") or {})
+            out["entity_set_same"] = sorted(int(i) for i in ids_now) == ex.get("resolved_airport_ids")
+            if ex["op"] == "screen":
+                from .analysis import SCREENING_PATH
+                from .evidence import file_hash
+                out["config_same"] = file_hash(SCREENING_PATH) == ex["screening"]["config_hash"]
+            twin = next((g for g in scratch.store.all() if g.result_key() == ex["result_key"]), None)
+        elif ex["tool"] == "derive":
+            inputs = [s.ctx.store.get(i) for i in ex["spec"]["findings"]]
+            for g in inputs:
+                scratch.store.add(copy.deepcopy(g))
+            scratch.store._n = max(int(i[1:]) for i in ex["spec"]["findings"])
+            sub = Session.__new__(Session)
+            sub.engine, sub.ctx = s.engine, scratch
+            _derive(sub, ex["spec"])
+            twin = scratch.store.added_since(len(inputs))[0]
+        elif ex["tool"] == "query_sql":
+            sub = Session.__new__(Session)
+            sub.engine, sub.ctx = s.engine, scratch
+            _sql(sub, ex["spec"])
+            twin = next((g for g in scratch.store.all() if g.result_key() == ex["result_key"]
+                         and g.spec == f.spec), None)
+        else:
+            return {"replayable": False, "reason": f"unknown tool {ex['tool']}"}
+    except Exception as e:                                   # a failed replay is a result, not a crash
+        return {**out, "match": False, "error": f"{type(e).__name__}: {str(e)[:200]}"}
+    if twin is None:
+        return {**out, "match": False, "reason": "the replayed operation no longer produces this result"}
+    out["replayed_value"] = twin.value
+    out["match"] = _same(twin.value, f.value) and twin.subject.get("rank") == f.subject.get("rank")
+    return out
 
 
 # ------------------------------------------------------------------ registry with JSON schemas
