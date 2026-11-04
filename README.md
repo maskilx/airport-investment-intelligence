@@ -47,6 +47,33 @@ Tests (offline, no model calls): `.venv/bin/python -m pytest`. Seed-archive test
 
 The header badge shows the active mode, and in Gemini mode the requests used today.
 
+**Groq** (`openai/gpt-oss-120b`, see [docs/model-provider-review.md](docs/model-provider-review.md)):
+```bash
+./scripts/configure-groq-key.sh      # hidden input; own Keychain item (the Gemini key is untouched)
+./scripts/mode.sh groq && ./scripts/start.sh --restart
+```
+* Free tier: 8k tokens per minute. The app paces requests and caps context per request, so expect minutes per question.
+* On the Developer plan, set `AIRPORT_GROQ_MAX_CONTEXT_TOKENS=60000`.
+* There is no fallback to other providers.
+* Live check: `.venv/bin/python tools/groq_smoke.py`, limited to 5 requests in total.
+
+### Live voice
+Click the microphone to start a voice conversation. It uses the same conversation, agent, evidence and validation as text chat.
+* **States:** listening, processing, speaking.
+* **Interrupt:** talk over the answer, or press Esc.
+* **Typing** always works.
+* **Speech-to-text:**
+  * Default: the browser's speech recognition (Chrome or Safari; no key).
+  * With Groq: set `AIRPORT_VOICE_STT=groq` in `.env` to use Groq Whisper on the server (needs the Groq key). It has its own daily cap, `AIRPORT_VOICE_MAX_REQUESTS`.
+* **Language:** English. Headphones avoid echo. Design and research: [docs/voice-architecture-review.md](docs/voice-architecture-review.md).
+
+### Demo in five steps
+1. Run `./scripts/start.sh` and open http://127.0.0.1:8765. Choose the provider first with `./scripts/mode.sh offline|gemini|groq`.
+2. Ask a factual question: "What is the percentage of long haul flights out of Anchorage airport?", then follow up with "Use 2000 miles instead".
+3. Ask for a comparison: "Compare LA and Santa Ana airport congestion levels."
+4. Ask for a decision: "Which airports in New England are strong candidates for terminal expansion?", then "Which one should we prioritize?"
+5. Inspect the evidence: click any highlighted value to see its definition, inputs, the dataset page and the exact raw file or download form. To try voice, press the microphone and ask "What is the unmet flight demand at SFO and why?"
+
 **One-question live check:** `.venv/bin/python tools/gemini_smoke.py` runs one LAX vs SNA congestion question. It
 allows at most 5 model requests, tracked in a persistent smoke-test counter that is separate from the daily budget.
 

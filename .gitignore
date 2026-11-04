@@ -34,3 +34,4 @@ eval/runs/**/agent_stdout.txt
 *.pkl
 eval/runs/gemini_smoke/
 eval/runs/groq_smoke/
+eval/runs/link_audit.json

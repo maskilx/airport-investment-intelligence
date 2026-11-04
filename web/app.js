@@ -247,6 +247,14 @@ function renderAnswer(turnEl, e) {
     card = h("div", { class: "answer" },
       h("div", { class: "a-head" }, h("h3", {}, s.headline), h("span", { class: "kind" }, KIND_LABEL[e.kind] || e.kind)),
       h("div", { class: "body", html: rich(s.body) }));
+    if (s.investigation) {                 // objective -> investigated -> established -> unknown -> next step
+      const iv = s.investigation, li = (k, t) => iv[k]?.length ? h("li", {}, h("strong", {}, `${t}: `),
+        h("span", { html: iv[k].map((x) => rich(x).replace(/^<p>|<\/p>$/g, "")).join("; ") })) : null;
+      card.append(h("div", { class: "section inv" }, h("h4", {}, "Investigation summary"), h("ul", { class: "plain" },
+        h("li", {}, h("strong", {}, `Objective (${iv.question_type}): `), h("span", { html: rich(iv.objective).replace(/^<p>|<\/p>$/g, "") })),
+        li("investigated", "Investigated"), li("established", "Established"), li("unknown", "Unknown"),
+        iv.next_step ? h("li", {}, h("strong", {}, "Most useful next step: "), iv.next_step) : null)));
+    }
     if (e.charts?.length) {
       const sec = h("div", { class: "section" }, h("h4", {}, "Charts — values are findings; click a mark to inspect"), h("div", { class: "charts" }));
       card.append(sec);
@@ -331,7 +339,7 @@ function claimEl(c) {
       h("p", {}, h("strong", {}, "Judgment: "), a.abstain ? `No definitive recommendation: ${a.abstain_reason || "the evidence is insufficient"}.` : a.judgment),
       a.tradeoffs?.length ? h("p", {}, h("strong", {}, "Trade-offs: "), a.tradeoffs.join("; ")) : null,
       a.robustness ? h("p", {}, h("strong", { title: "Recomputed by the scoring engine under each documented weighting scenario. This is not a statistical confidence." }, "Sensitivity (computed): "),
-        a.robustness, a.robust === false ? " The preference depends on the weighting assumption." : "") : null,
+        a.robustness.replace(/\.?$/, "."), a.robust === false ? " The preference depends on the weighting assumption." : "") : null,
       a.conditional_on?.length ? h("p", {}, h("strong", {}, "Holds only if: "), a.conditional_on.join("; ")) : null,
       a.would_change?.length ? h("p", {}, h("strong", {}, "Would change with: "), a.would_change.join("; ")) : null));
   }
@@ -444,7 +452,9 @@ async function showFinding(fid) {
       h("div", { class: "p", style: "margin-top:6px" }, `Periods used: ${(s.periods || []).length ? `${s.periods[0]} … ${s.periods[s.periods.length - 1]} (${s.periods.length})` : "n/a"}`),
       vs.length ? h("table", {}, h("tbody", {}, vs.slice(0, 14).map((v) => h("tr", {},
         h("td", {}, v.period), h("td", { title: v.sha256 }, (v.sha256 || "").slice(0, 10)), h("td", {}, (v.stored_at || "").slice(0, 10)),
-        h("td", {}, v.url ? h("a", { href: v.url, target: "_blank", rel: "noopener noreferrer", title: v.url }, "raw file ↗") : "—"))))) : null,
+        h("td", {}, (v.links || []).length ? v.links.map((l) => h("a", { href: l.url, target: "_blank", rel: "noopener noreferrer",
+          title: l.note || l.url, style: "margin-right:6px" }, `${l.label} ↗`)) : "local file"))))) : null,
+      s.access === "form" ? h("p", { class: "note" }, `Access: ${s.access_note}.`) : null,
       vs.length > 14 ? h("div", { class: "p" }, `+ ${vs.length - 14} more vintages`) : null));
   }
   if (f.spec) pane.append(h("div", { class: "kicker" }, "Reproducing analysis spec"), h("pre", { class: "spec" }, JSON.stringify(f.spec, null, 2)));

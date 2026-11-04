@@ -403,6 +403,10 @@ class OfflineBackend:
             ans["claims"].append({"kind": "inference", "support": [f for _, _, f in cells][:10], "text":
                                   "These are airside indicators: they show how busy and how punctual the airfield "
                                   "operation is, not how crowded the passenger terminal is."})
+        periods = sorted({p for p in re.findall(r"\{(F\d+)\.period\}", " ".join(body))})
+        if intent == "congestion" and periods:
+            ans["assumptions"].append("Each indicator compares the airports over the same window. Windows differ between "
+                                      "sources (each value shows its own), as each source publishes on its own schedule.")
         if intent == "congestion":
             ans["assumptions"].append("Congestion is read from airside indicators (delay rate, taxi-out, scheduled "
                                       "peak hour, tower operations); terminal/landside congestion is not in the data.")

@@ -183,3 +183,15 @@ def test_live_status_parser_refuses_entities_and_lists_quiet_airports():
         parse('<!DOCTYPE x [<!ENTITY a "b">]><AIRPORT_STATUS_INFORMATION/>')
     u, items = parse("<AIRPORT_STATUS_INFORMATION><Update_Time>T</Update_Time></AIRPORT_STATUS_INFORMATION>")
     assert render_lines(u, items, ["BOS"])[1].startswith("BOS: no ground delay program")
+
+
+def test_source_links_are_labelled_by_what_they_open():
+    from airport_agent.provenance import link_for
+    assert link_for("faa_taf", "https://taf.faa.gov/Downloads/APO100_TAF_Final_2025.zip")[0]["label"] == "raw file"
+    t100 = link_for("bts_t100_segment", "https://www.transtats.bts.gov/DL_SelectFields.aspx?x")
+    assert t100[0]["label"] == "download form" and t100[0]["note"]
+    assert link_for("faa_atads_ops", "https://www.aspm.faa.gov/opsnet/sys/opsnet-server-x.asp")[0]["url"].endswith("airport.asp")
+    assert link_for("bts_lookups", "https://www.transtats.bts.gov/Download_Lookup.asp") == []
+    assert [x["url"].rsplit("/", 1)[1] for x in link_for("ourairports", "https://davidmegginson.github.io/ourairports-data/")] == \
+        ["airports.csv", "runways.csv"]
+    assert link_for("curated_constraints", "file://airport_constraints.csv") == []

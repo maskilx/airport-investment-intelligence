@@ -1,0 +1,11 @@
+# Link status from tools/link_audit.py (2026-11-04). Constraint flags whose source is listed here say so
+# instead of presenting a dead link as evidence. Re-run the audit and update this file; never invent replacements.
+[broken]
+"https://bradleyairport.com/news/bradley-international-airport-caps-off-terminal-expansion-with-unveiling-of-newly-constructed-concourse/" = "HTTP 403 on 2026-11-04 (site blocks automated checks; not verified)"
+"https://dot.alaska.gov/anc/about/facts.shtml" = "HTTP 404 on 2026-11-04"
+"https://flyri.com/pvd-master-plan/" = "HTTP 404 on 2026-11-04"
+"https://newportbeachca.gov/pln/CEQA_REVIEW/John Wayne Airport DEIR/CC 3 Principal Terms of the Proposed Project and Alternatives.pdf" = "HTTP 404 on 2026-11-04"
+"https://noise.flysfo.com/aircraft-noise/flight-patterns-operations/" = "HTTP 404 on 2026-11-04"
+"https://portlandjetport.org/sites/default/files/PWM%20Master%20Plan%20Executive%20Summary.pdf" = "HTTP 404 on 2026-11-04"
+"https://www.flymanchester.com/manchester-boston-regional-airport-and-aeroterm-to-develop-multitenant-cargo-facility/" = "HTTP 404 on 2026-11-04"
+"https://www.flysfo.com/about-sfo/media/press-releases/sfos-terminal-3-west-modernization-project-underway" = "HTTP 404 on 2026-11-04"

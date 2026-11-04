@@ -41,6 +41,21 @@ They are not 17 live APIs.
 | Web research | `web.py` | `web_search` + SSRF-guarded `fetch_page` produce W# external evidence, separate from F#. Web numbers are allowed only inside quotes verified verbatim against the fetched text. | Keeps internal facts and external claims visibly distinct, and auditable. |
 | Models | `models.py`, `offline.py` | One `ModelBackend` protocol. **Gemini** (REST, opt-in, request budget, usage log, no fallback), a scripted backend for tests, and a deterministic **offline planner** for demos with zero model calls | Cost safety by construction. The offline planner exercises the full stack in tests and the UI. |
 | API + UI | `airport_app/server.py`, `web/` | FastAPI with SSE streaming (tool strips live), conversations, cancellation, a provenance endpoint and a memory inspector. Vanilla ES-module UI with vendored Vega-Lite | No build toolchain. Charts are built server-side from findings, so the browser never computes a number. |
+| Missing information | `airport_analytics/information.py`, `config/information_gaps.toml` | `check_information` classifies a need as exists, derivable, proxy, external, not measurable or unknown. It returns validated proxy metric ids, what they cannot establish, the data needed and the next step. Answers to investigations carry an **investigation summary**: objective, investigated, established (cited), unknown, next step. | A forward-deployed analyst does not stop at "no data". It runs labelled proxies, says what remains unknown, and names the most useful next step. Config, not templates. |
+| Model providers | `airport_agent/models.py` | Offline (rule-based), **Gemini** (free-tier Flash), **Groq** (`openai/gpt-oss-120b`): one `ModelBackend` protocol and the same loop, tools and validation. Each has its own Keychain key, daily budget, usage log and smoke-test allowance, and none falls back to another. Groq has free-tier pacing and a context cap ([docs/model-provider-review.md](docs/model-provider-review.md)). | Swapping the model never changes what counts as evidence. |
+| Voice | `airport_agent/voice.py`, `web/app.js` | A chained pipeline: browser VAD or Web Speech, then optional server Whisper STT, then **the same message endpoint**, then a deterministic spoken rendering of the validated answer, then browser speech with barge-in ([docs/voice-architecture-review.md](docs/voice-architecture-review.md)). | Speech-to-speech models would re-voice our answers; here the words spoken are the ones validated. |
+
+## 1b. Data acquisition: what is and is not an API
+
+| How | Sources |
+|---|---|
+| **Public REST API (live, keyless)** | FAA NAS Status `api/airport-status-information`, used for "right now" questions as external evidence (W#), not part of the reproducible database |
+| **Public file downloads (scripted HTTPS GET)** | BTS On-Time monthly zips, FAA TAF, FAA enplanement and cargo workbooks, AIP grant workbooks, NPIAS, NASR APT, Census CBSA delineation, BEA CAINC1, OurAirports CSV |
+| **Public reporting forms (scripted form POST)** | BTS T-100 segment, BTS lookup tables, FAA ATADS |
+| **Curated (cited by hand) and reference tables** | airport constraints, geography overrides, state and division lists |
+
+Historical analytics come from vintaged downloads, not live APIs, for reproducibility: every number can be rebuilt
+bit for bit. All acquisition is automated (`python -m airport_data fetch --all-default`) from public endpoints.
 
 ## 2. Scoring methodology: Passenger Growth Opportunity Screen (stage A)
 
@@ -92,6 +107,7 @@ called it a "terminal-expansion screen", which overclaimed.
 | Writing the explanation | LLM | Placeholders only. Every assertion is a typed claim. Code verifies comparison directions and compatibility, writes ranks, requires competing explanations for causal stories, and rejects financial claims (no economics model). |
 | Assumptions and corrections | LLM proposes; code enforces | `update_memory` with `binds`. Dependent findings go stale and cannot be cited. |
 | Assessments and recommendations | LLM judges; code checks | Only when the question asks for a judgment (prioritise, recommend, suitable, attractive, better). The claim is `assessment {objective, criteria[{name, findings, favors, direction}], judgment, conditional_on, would_change, abstain}`. Code verifies the following. Every criterion cites current findings. The option a criterion favours is the one its values support, given the stated direction, with near-ties (within 5%) counted as "neither". The judgment does not name an option that no criterion favours. Weights and scores come only from a documented model (screen or rank). Certainty, financial and causal language are rejected. Insufficient evidence means an explicit abstention. Criteria depend on the objective; there is no universal score. |
+| Understanding the objective and handling missing information | LLM, with deterministic support | The model decides the question type and the objective, using memory before asking. `check_information` deterministically maps the gap to proxies and next steps. One focused question only when the answer depends on it. |
 | Labelling what kind of knowledge a statement is | deterministic | Claim tags come from claim type and evidence class: Measured, Calculated, Forecast (FAA), Comparison or Ranking (computed), Interpretation, Hypothesis, External source. Values that are not established are listed under Limitations with the reason, never shown as facts. |
 | Charts | deterministic | ChartSpec (findings + type + validated title) → Vega-Lite. |
 | Memory updates | deterministic + validated tool | State is updated from tool calls. `update_memory` records assumptions and corrections; summaries are number-free. |
@@ -107,7 +123,9 @@ called it a "terminal-expansion screen", which overclaimed.
 * **Typed claims vs free prose.** Comparisons and rankings are rendered by code, so the model cannot get a direction or rank wrong. The cost is less fluent prose. Vocabulary gates catch common overclaims ("guaranteed", "profitable", "needs more gates", "because"), but a determined paraphrase can evade a lexicon. That residual risk is accepted and documented, rather than hidden behind an LLM judge that would itself be unverifiable.
 * **Over-invalidation vs silent staleness.** An unbound assumption change stales everything produced under it. Re-running is cheap; citing a finding computed under a superseded definition is not.
 * **Context budget.** The hard cap uses a conservative 3 chars/token estimate (real tokenizers average about 4). Exact provider token counting is a network call, deferred until live use.
-* **Voice.** Browser Web Speech (recognition + synthesis) drives the same agent at zero cost. A real-time voice stack (e.g. Pipecat + WebRTC) is the documented upgrade path ([docs/07](docs/07-product-phase-plan.md)).
+* **Groq free tier.** 8k tokens per minute per model forces small requests and pacing (minutes per question). The adapter handles it honestly rather than failing; the Developer plan is the recommended demo setting (about one cent per question).
+* **Voice: chained versus speech-to-speech.** Slightly higher latency (VAD end, STT, agent time) in exchange for one authoritative agent and validated speech. Browser TTS is free and instant; Groq's English TTS is a preview model with tight limits.
+* **Voice (earlier design).** Browser Web Speech (recognition + synthesis) drives the same agent at zero cost. A real-time voice stack (e.g. Pipecat + WebRTC) is the documented upgrade path ([docs/07](docs/07-product-phase-plan.md)).
 
 ## 5. Quality evidence
 
@@ -121,4 +139,7 @@ called it a "terminal-expansion screen", which overclaimed.
   * An independent product and architecture review.
   * Both are reconciled against the code in [docs/10](docs/10-architecture-assessment.md).
 * **Agent evaluation:** 49 of 70 generated questions were scored before the run was stopped, with 47 passing. The planner was Grok through its CLI, **not** this product loop with Gemini. The 21 unrun questions include all 10 adversarial questions. This is evidence, not a benchmark result ([docs/06](docs/06-phase2-audit-review-log.md)).
-* **Not yet demonstrated:** a live Gemini run through this loop. It needs explicit authorisation and a request budget.
+* **Assignment compliance and readiness:** [docs/11-assignment-compliance.md](docs/11-assignment-compliance.md). **Link audit:** [docs/link-audit.md](docs/link-audit.md).
+* **Not yet demonstrated:**
+  * A successful live LLM run through this loop. The single Gemini smoke request on 2026-11-04 got HTTP 503 (provider overload) and was not retried. Groq is untested until a key is entered.
+  * Real-microphone voice. The voice pipeline is tested through its code paths, without audio hardware.

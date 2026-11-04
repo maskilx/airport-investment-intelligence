@@ -54,6 +54,14 @@ def strict_range(value: str) -> tuple[float, float] | None:
     return lo, float(m.group(2) or lo)
 
 
+def _broken_links() -> dict[str, str]:
+    import tomllib
+
+    from airport_data.config import REPO_ROOT
+    p = REPO_ROOT / "config" / "link_status.toml"
+    return tomllib.loads(p.read_text()).get("broken", {}) if p.exists() else {}
+
+
 def constraint_records(ctx, as_of: str) -> list[dict]:
     """Curated constraints with evidence level and effectiveness at `as_of` (ISO date)."""
     rows = ctx.engine.con.execute("""SELECT airport_iata, category, item, value, unit, effective_from, effective_to,
@@ -72,7 +80,8 @@ def constraint_records(ctx, as_of: str) -> list[dict]:
         else:
             eff = "in_effect"
         out.append({"airport": code, "category": cat, "item": item, "value": val, "unit": unit, "effective_from": ef_s,
-                    "effective_to": et_s, "status": status, "evidence": lvl, "effective": eff, "source_url": url})
+                    "effective_to": et_s, "status": status, "evidence": lvl, "effective": eff, "source_url": url,
+                    "source_link": _broken_links().get(url, "ok (not re-checked)" if url else "none")})
     return out
 
 
@@ -237,7 +246,7 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
             flags.append({"flag": ("REGULATORY_CAP" if r["category"] == "regulatory_cap" else "CURFEW") if strong
                           else "REPORTED_CONSTRAINT_UNVERIFIED",
                           "detail": f"{r['item']} (effective {r['effective_from'] or 'n/a'} to {r['effective_to'] or 'open'})",
-                          "evidence": r["evidence"], "source_url": r["source_url"],
+                          "evidence": r["evidence"], "source_url": r["source_url"], "source_link": r["source_link"],
                           "class": f"observed (curated, {r['evidence']} evidence)" if strong else "not_established"})
         if code in imc:
             share, nh = _hours_above(ctx, aid, imc[code], ot_months)
