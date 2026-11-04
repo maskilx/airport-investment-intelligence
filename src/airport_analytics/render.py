@@ -22,14 +22,18 @@ from .evidence import EvidenceStore, Finding, InvalidSpec
 
 PH = re.compile(r"\{(F\d+)(?:\.(label|name|period|class|source|value|definition))?\}")
 WPH = re.compile(r"\{(W\d+)\}")                       # external web evidence: renders as a link, carries no value
-# numerals allowed in prose: 4-digit years 1990-2060, FY/CY+year, 'T-100', 'T12', list markers like '1.' at line start
-ALLOW = re.compile(r"\b(?:19[9]\d|20[0-6]\d)\b|\b(?:FY|CY)\s?\d{2,4}\b|\bT-100\b|\bT12\b|^\s*\d+[.)]\s|\bQ[1-4]\b|"
-                   r"\b[A-Z][A-Z0-9]{1,3}\b", re.M)   # codes must START with a letter (LAX, F12, Q1); '26M' is a number
+# numerals allowed in prose: 4-digit years 1990-2069, FY/CY + year, 'T-100', 'T12', Q1-Q4, evidence ids (F#/A#/W#) and
+# letter-only codes (LAX). Codes that contain digits are allowed only when they are known airport codes (validate()).
+# No list markers ('84. passengers' must not pass): use '-' bullets.
+ALLOW = re.compile(r"\b(?:199\d|20[0-6]\d)\b|\b(?:FY|CY)\s?(?:(?:19|20)\d\d|\d\d)\b|\bT-100\b|\bT12\b|\bQ[1-4]\b|"
+                   r"\b[FAW]\d{1,5}\b|\b[A-Z]{2,4}\b")
+CODE_TOKEN = re.compile(r"\b[A-Z][A-Z0-9]{1,3}\b")
 NUM = re.compile(r"\d")
 NUMBER_WORDS = re.compile(r"\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|"
                           r"fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|"
-                          r"ninety|hundred|thousand|million|billion|trillion|dozen|half|third|quarter|percent|"
-                          r"double|twice|triple|tripled|doubled|halved)\b", re.I)
+                          r"ninety|hundred|thousand|million|billion|trillion|dozen|dozens|half|third|quarter|percent|"
+                          r"double|twice|triple|tripled|doubled|halved|thrice|couple|fourth|fifth|sixth|seventh|eighth|"
+                          r"ninth|tenth|eleventh|twelfth|twentieth|hundredth|thousandth|fourfold|fivefold|tenfold)\b", re.I)
 ALLOWED_WORD_USES = re.compile(r"\b(one of|at least one|no one|one or more|half-hour|quarter of an hour|which one|"
                                r"that one|this one|the one|each one|any one|one airport|one region)\b", re.I)
 
@@ -82,12 +86,49 @@ def fmt_value(f: Finding) -> str:
     return f"{s} ({tag})" if tag else s
 
 
+INVISIBLE = re.compile("[\u00ad\u200b-\u200f\u2060-\u2064\ufeff]")
+
+
 def _norm(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "").replace("\u00a0", " ")).strip().lower()
+    """Normalise for verbatim comparison: drop invisible characters, keep line breaks as hard separators (a quote may not
+    join text from two blocks/cells), collapse other whitespace, lowercase."""
+    s = INVISIBLE.sub("", (s or "").replace("\u00a0", " "))
+    s = re.sub(r"[ \t\f\v\r]*\n[\s]*", " \u2029 ", s)
+    return re.sub(r"[ \t\f\v\r]+", " ", s).strip().lower()
 
 
-def _strip_allowed(text: str) -> str:
+def quote_found(quote: str, page_text: str) -> str | None:
+    """None if `quote` occurs verbatim in the page at word boundaries (not splitting a longer number), else the reason."""
+    q = _norm(quote)
+    if len(q) < 12 or len(q.split()) < 3:
+        return "quotes must be at least three words (a bare figure is not a citation)"
+    if "\u2029" in q:
+        return "a quote may not span separate paragraphs or table cells"
+    t = _norm(page_text)
+    for m in re.finditer(re.escape(q), t):
+        b = t[m.start() - 1] if m.start() else " "
+        b2 = t[m.start() - 2] if m.start() > 1 else " "
+        a = t[m.end()] if m.end() < len(t) else " "
+        a2 = t[m.end() + 1] if m.end() + 1 < len(t) else " "
+        cut_start = q[0].isalnum() and (b.isalnum() or (q[0].isdigit() and b in ".," and b2.isdigit()))
+        cut_end = q[-1].isalnum() and (a.isalnum() or (q[-1].isdigit() and a in ".," and a2.isdigit()))
+        if not cut_start and not cut_end:
+            return None
+    return "not a verbatim excerpt"
+
+
+def safe_label(text: str, fallback: str) -> str:
+    """External text shown outside a verified quote (page titles, domains) must not carry numbers."""
+    t = text or ""
+    if re.search(r"\d", t) or NUMBER_WORDS.search(ALLOWED_WORD_USES.sub("", t)) or _numeric_chars(t):
+        return fallback
+    return t
+
+
+def _strip_allowed(text: str, known: set[str] | None = None) -> str:
     t = WPH.sub("", PH.sub("", text))
+    if known:
+        t = CODE_TOKEN.sub(lambda m: "" if m.group(0) in known else m.group(0), t)
     return ALLOW.sub("", t)
 
 
@@ -108,7 +149,7 @@ def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str]
         for fid, _ in PH.findall(t or ""):
             if fid not in store:
                 errs.append(f"{where}: placeholder {{{fid}}} does not refer to a finding from this session")
-        rest = _strip_allowed(t or "")
+        rest = _strip_allowed(t or "", known_codes)
         bad = re.findall(r"[^\s]*\d[^\s]*", rest)
         if bad:
             errs.append(f"{where}: numbers must come from findings via placeholders; found literal(s) {bad[:5]}")
@@ -143,8 +184,10 @@ def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str]
                 errs.append(f"claims[{i}]: external claims need source = a W# fetched with fetch_page in this conversation")
             elif not quote.strip() or len(quote) > 600:
                 errs.append(f"claims[{i}]: external claims need a verbatim quote (≤600 chars) from {src}")
-            elif _norm(quote) not in _norm(web[src]["text"]):
-                errs.append(f"claims[{i}]: the quote is not a verbatim excerpt of {src} ({web[src]['url']})")
+            else:
+                why = quote_found(quote, web[src]["text"])
+                if why:
+                    errs.append(f"claims[{i}]: quote rejected for {src}: {why}")
             if PH.search(c.get("text", "")):
                 errs.append(f"claims[{i}]: external claims must not cite internal findings; use a fact/inference claim")
             continue
@@ -190,12 +233,15 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
     def wsub(m):
         it = web[m.group(1)]
         used_w.append(it["id"])
-        return f"[{it['title']}]({it['url']})"
+        return f"[source {it['id']}]({it['url']})"
 
     def wsub_marked(m):
         it = web[m.group(1)]
         used_w.append(it["id"])
-        return f"\u27e6{it['id']}|{it['domain'] or it['title']}\u27e7"
+        return f"\u27e6{it['id']}|source {it['id']}\u27e7"
+
+    def wtitle(w):
+        return safe_label(web[w]["title"], safe_label(web[w]["domain"] or "", f"web source {w}"))
 
     def r(t):
         return WPH.sub(wsub, PH.sub(sub, t or ""))
@@ -213,8 +259,8 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
             if c["kind"] == "external":
                 it = web[c["source"]]
                 used_w.append(it["id"])
-                lines.append(f"- *External source ({it['domain']}, retrieved {it['retrieved_at'][:10]})*: {r(c['text'])} "
-                             f"\u2014 \u201c{c['quote'].strip()}\u201d [{it['id']}]({it['url']})")
+                lines.append(f"- *External source ({safe_label(it['domain'] or '', 'web')})*: {r(c['text'])} "
+                             f"\u2014 \u201c{INVISIBLE.sub('', c['quote']).strip()}\u201d [{it['id']}]({it['url']})")
                 continue
             tag = {"fact": "Fact", "inference": "Inference", "hypothesis": "Hypothesis (not established by the data)"}[c["kind"]]
             sup = ", ".join(c.get("support") or [])
@@ -245,15 +291,17 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
     wids = list(dict.fromkeys(used_w))
     if wids:
         lines += ["", "**External sources (web; not part of the internal datasets)**"] + [
-            f"- {w}: [{web[w]['title']}]({web[w]['url']}) \u2014 {web[w]['domain']}, retrieved {web[w]['retrieved_at']}"
-            for w in wids]
+            f"- {w}: [{wtitle(w)}]({web[w]['url']}) (retrieved; see the source inspector for date and hash)" for w in wids]
     charts = [c for c in answer.get("charts", []) or [] if isinstance(c, dict)]
     ids = list(dict.fromkeys(ids + [f for c in charts for f in c["findings"]]))
     structured = {"headline": r(answer["headline"]), "body": rm(answer["body"]),
                   "claims": [{"kind": c["kind"], "text": rm(c["text"]), "support": c.get("support") or [],
-                              **({"source": c["source"], "quote": c["quote"].strip()} if c["kind"] == "external" else {})}
+                              **({"source": c["source"], "quote": INVISIBLE.sub("", c["quote"]).strip()}
+                                 if c["kind"] == "external" else {})}
                              for c in claims],
-                  "external": [{k: web[w][k] for k in ("id", "title", "url", "domain", "retrieved_at")} for w in wids],
+                  "external": [{"id": w, "title": wtitle(w), "url": web[w]["url"],
+                                "domain": safe_label(web[w]["domain"] or "", "web"), "retrieved_at": web[w]["retrieved_at"]}
+                               for w in wids],
                   "assumptions": [rm(a) for a in answer.get("assumptions", [])],
                   "limitations": [rm(x) for x in answer.get("limitations", [])],
                   "caveats": list(dict.fromkeys(c for f in expanded for c in f.caveats)),

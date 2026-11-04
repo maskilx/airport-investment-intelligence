@@ -125,7 +125,7 @@ def http_get(url: str, timeout: float = 15.0, max_redirects: int = 4) -> tuple[s
 
 class _Text(HTMLParser):
     SKIP = {"script", "style", "noscript", "svg", "nav", "footer", "header", "form", "iframe", "template"}
-    BLOCK = {"p", "div", "li", "h1", "h2", "h3", "h4", "h5", "tr", "br", "section", "article", "table", "dd", "dt"}
+    BLOCK = {"p", "div", "li", "h1", "h2", "h3", "h4", "h5", "tr", "br", "section", "article", "table", "dd", "dt", "td", "th", "ul", "ol"}
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -138,6 +138,8 @@ class _Text(HTMLParser):
             self._in_title = True
         elif tag in self.BLOCK:
             self.out.append("\n")
+        else:
+            self.out.append(" ")                               # any tag boundary separates text
 
     def handle_endtag(self, tag):
         if tag in self.SKIP and self._skip:
@@ -149,7 +151,7 @@ class _Text(HTMLParser):
         if self._in_title:
             self.title += data
         elif not self._skip:
-            self.out.append(data)
+            self.out.append(re.sub(r"\s+", " ", data))      # source line breaks are not text breaks
 
 
 def extract_text(body: bytes, content_type: str) -> tuple[str, str]:

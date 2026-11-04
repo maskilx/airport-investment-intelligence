@@ -12,7 +12,7 @@ from typing import Any, Callable
 from .analysis import OPS, TRANSFORMS, Context, _new, run_analysis
 from .engine import Engine
 from .evidence import AnalyticsError, EvidenceStore, InvalidSpec, SourceRef
-from .render import render, validate
+from .render import render, safe_label, validate
 from .resolver import Resolver
 from .semantic import AIRPORT_ATTR_DIMS, CATALOG_VERSION, FACTS, MEASURES, METRICS
 
@@ -199,8 +199,11 @@ def _sql(s: Session, a: dict) -> Any:
         cells = {}
         for c, v in zip(cols, r):
             if isinstance(v, (int, float)) and not isinstance(v, bool):
-                f = _new(s.ctx, metric_id="exploratory_sql", label=f"{c} (exploratory query)", value=v, unit="", fmt="number",
-                         epistemic_class="exploratory", definition=f"column {c} of: {q}", formula_version="1",
+                f = _new(s.ctx, metric_id="exploratory_sql",
+                         label=f"{safe_label(str(c)[:60], 'unnamed column')} (exploratory query)", value=v, unit="",
+                         fmt="number", epistemic_class="exploratory",
+                         definition="exploratory SQL over whitelisted views (query text in the finding's spec)",
+                         formula_version="1", spec={"sql": q, "column": str(c)},
                          subject={"row": {k: str(x) for k, x in zip(cols, r) if not isinstance(x, (int, float)) or isinstance(x, bool)}},
                          window={"label": "as queried"}, sources=srcs,
                          caveats=["Exploratory SQL: definitions are not catalog metrics; verify before relying on it."])
