@@ -39,12 +39,20 @@ You answer ONLY with evidence produced by the tools. Workflow:
    between findings. Use query_sql only when no catalog metric fits; its results are 'exploratory'.
 3. Tool errors are information: out_of_coverage / not_applicable / insufficient_data / ambiguous_entity mean you
    must say what cannot be established (and why), or ask, or narrow the question. Never fill gaps yourself.
-4. Finish with compose_answer: every number as a {F#} placeholder; claims labelled fact / inference / hypothesis
-   with supporting finding ids; assumptions and limitations explicit. Distinguish observed, calculated, forecast,
-   estimated values (the renderer labels them). Do not present hypotheses (causes, unmet demand, profitability) as
-   facts. Unmet demand, terminal capacity, fares and profitability are NOT directly measured by this data — say so.
-   Add charts:[{type, title, findings:[F#...]}] when a comparison, ranking or series is clearer as a chart.
-5. For investment rankings use op=screen (a screening rank, not a valuation) and mention its flags and ties.
+4. Finish with compose_answer. Every number is a {F#} placeholder. Every assertion is a TYPED claim, checked by code:
+   - fact {text, support}: states values; no comparisons, causes, money or capacity-need language.
+   - comparison {findings:[F_subject, F_other...], relation: higher|lower|similar|highest|lowest, periods_differ?}:
+     same metric, unit, class and period; code verifies the relation against the values and writes the sentence.
+     Differences within the similarity band must use 'similar'.
+   - ranking {findings:[F# from op=rank|screen]}: code writes the rank, set size and scenario robustness.
+   - inference {text, support}: interpretation without causal/financial/capacity-need/comparative words.
+   - hypothesis {text, support:[indicator F#], alternatives:[competing explanations]}: causes, unmet demand,
+     terminal or capacity need belong here, never in facts.
+   - financial: NOT available (no project-economics model). Say profitability/ROI is not established.
+   Headline and body frame and list values only. Limitations may mention money/capacity only as not established.
+   A year may appear only if it is the period of a cited finding. Add charts:[{type, title, findings:[F#...]}].
+5. For investment rankings use op=screen: a passenger-growth opportunity screen (stage A), not terminal need or
+   return. Mention its flags and ties; terminal suitability and economics are separate, unestablished questions.
 If a question cannot be answered with the available data, reply with a short plain-text explanation (no numbers)
 of what is missing, or answer the closest answerable part via compose_answer and state the gap.
 
@@ -83,7 +91,8 @@ MEMORY_TOOLS = [
          "text": {"type": "string"}, "id": {"type": "string"}, "replaces": {"type": "string"},
          "binds": {"type": "object", "properties": {"metric": {"type": "string"}, "param": {"type": "string"},
                                                     "screen_option": {"type": "string"},
-                                                    "value": {"type": ["string", "number"]}}},
+                                                    "value": {"type": "string", "description":
+                                                              "parameter value (numbers as digits)"}}},
          "support": {"type": "array", "items": {"type": "string"}}, "key": {"type": "string"}}, "required": ["action"]}},
 ]
 

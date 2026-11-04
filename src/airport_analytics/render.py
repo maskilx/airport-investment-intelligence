@@ -18,7 +18,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .claims import expand as expand_claim
+from .claims import validate_answer as validate_claims
 from .evidence import EvidenceStore, Finding, InvalidSpec
+
+CLAIM_KINDS = ("fact", "comparison", "ranking", "inference", "hypothesis", "financial", "external")
 
 PH = re.compile(r"\{(F\d+)(?:\.(label|name|period|class|source|value|definition))?\}")
 WPH = re.compile(r"\{(W\d+)\}")                       # external web evidence: renders as a link, carries no value
@@ -141,7 +145,9 @@ def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str]
              **{f"claims[{i}]": c.get("text", "") for i, c in enumerate(answer.get("claims", []))},
              **{f"assumptions[{i}]": a for i, a in enumerate(answer.get("assumptions", []))},
              **{f"limitations[{i}]": a for i, a in enumerate(answer.get("limitations", []))},
-             **{f"charts[{i}].title": (c or {}).get("title", "") for i, c in enumerate(answer.get("charts", []) or [])}}
+             **{f"charts[{i}].title": (c or {}).get("title", "") for i, c in enumerate(answer.get("charts", []) or [])},
+             **{f"claims[{i}].alternatives[{k}]": a for i, c in enumerate(answer.get("claims", []))
+                for k, a in enumerate(c.get("alternatives") or []) if isinstance(a, str)}}
     for where, t in texts.items():
         for wid in WPH.findall(t or ""):
             if wid not in (web or {}):
@@ -181,8 +187,8 @@ def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str]
                 errs.append(f"charts[{i}]: {fid} is not a finding from this session")
     for i, c in enumerate(answer.get("claims", [])):
         kind = c.get("kind")
-        if kind not in ("fact", "inference", "hypothesis", "external"):
-            errs.append(f"claims[{i}]: kind must be fact|inference|hypothesis|external")
+        if kind not in CLAIM_KINDS:
+            errs.append(f"claims[{i}]: kind must be {'|'.join(CLAIM_KINDS)}")
         if kind == "external":
             src, quote = c.get("source"), c.get("quote") or ""
             if src not in (web or {}):
@@ -204,6 +210,7 @@ def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str]
         for fid in sup:
             if fid not in store:
                 errs.append(f"claims[{i}]: support {fid} is not a finding from this session")
+    errs += [e for e in validate_claims(answer, store) if e not in errs]      # semantic layer (claims.py)
     return errs
 
 
@@ -257,7 +264,7 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
             return f"\u27e6{m.group(1)}|{v}\u27e7" if m.group(2) in (None, "value") else v
         return WPH.sub(wsub_marked, PH.sub(subm, t or ""))
     lines = [f"## {r(answer['headline'])}", "", r(answer["body"])]
-    claims = answer.get("claims", [])
+    claims = [expand_claim(c, store) for c in answer.get("claims", [])]      # comparison/ranking text written by code
     if claims:
         lines += ["", "**Findings and reasoning**"]
         for c in claims:
@@ -267,7 +274,8 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
                 lines.append(f"- *External source ({safe_label(it['domain'] or '', 'web')})*: {r(c['text'])} "
                              f"\u2014 \u201c{INVISIBLE.sub('', c['quote']).strip()}\u201d [{it['id']}]({it['url']})")
                 continue
-            tag = {"fact": "Fact", "inference": "Inference", "hypothesis": "Hypothesis (not established by the data)"}[c["kind"]]
+            tag = {"fact": "Fact", "comparison": "Comparison", "ranking": "Ranking", "inference": "Inference",
+                   "hypothesis": "Hypothesis (not established by the data)"}[c["kind"]]
             sup = ", ".join(c.get("support") or [])
             lines.append(f"- *{tag}*: {r(c['text'])}" + (f" [{sup}]" if sup else ""))
             used += c.get("support") or []

@@ -346,7 +346,7 @@ def _op_rank(spec, ids, notes, ctx):
                  unit="points (0-100, relative to this set)", fmt="number", epistemic_class="calculated",
                  definition=f"Σ weight × {scaling}-scaled criterion; criteria: " +
                  ", ".join(f"{k} ({c.get('direction', 'higher_better')}, w={c.get('weight', 1)})" for k, c in zip(keys, crit)),
-                 formula_version="1", subject={"airport": aid, "airport_code": ctx.resolver.code(aid), "rank": rank},
+                 formula_version="1", subject={"airport": aid, "airport_code": ctx.resolver.code(aid), "rank": rank, "of": len(order)},
                  window={"label": "see inputs"}, sources=[s for x in fs for s in x.sources],
                  caveats=["Scores are relative to the airports in this set; adding/removing airports changes them."],
                  inputs=[x.id for x in fs])

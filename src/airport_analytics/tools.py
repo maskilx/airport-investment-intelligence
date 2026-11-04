@@ -315,9 +315,16 @@ _WINDOW = {"type": "object", "description": "one of: {t12:true[,offset_months]},
 _ANSWER = {"type": "object", "properties": {
     "headline": {"type": "string"}, "body": {"type": "string"},
     "claims": {"type": "array", "items": {"type": "object", "properties": {
-        "kind": {"enum": ["fact", "inference", "hypothesis", "external"]}, "text": {"type": "string"},
-        "support": {"type": "array", "items": {"type": "string"}}, "source": {"type": "string"},
-        "quote": {"type": "string"}}, "required": ["kind", "text"]}},
+        "kind": {"enum": ["fact", "comparison", "ranking", "inference", "hypothesis", "financial", "external"]},
+        "text": {"type": "string"},
+        "support": {"type": "array", "items": {"type": "string"}},
+        "findings": {"type": "array", "items": {"type": "string"},
+                     "description": "comparison/ranking: finding ids (comparison: subject first)"},
+        "relation": {"enum": ["higher", "lower", "similar", "highest", "lowest"]},
+        "periods_differ": {"type": "boolean"},
+        "alternatives": {"type": "array", "items": {"type": "string"},
+                         "description": "hypothesis: competing explanations"},
+        "source": {"type": "string"}, "quote": {"type": "string"}}, "required": ["kind"]}},
     "assumptions": {"type": "array", "items": {"type": "string"}},
     "limitations": {"type": "array", "items": {"type": "string"}},
     "charts": {"type": "array", "items": {"type": "object", "properties": {
@@ -362,8 +369,11 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          {"type": "object", "properties": {"id": {"type": "string"}, "reproduce": {"type": "boolean"}}, "required": ["id"]},
          _finding),
     Tool("compose_answer",
-         "Validate and render the final answer. answer = {headline, body, claims:[{kind: fact|inference|hypothesis, text, "
-         "support:[F#]} or {kind: external, text, source: W#, quote}], assumptions:[...], limitations:[...], charts:[{type: auto|bar|line|scatter|table, title, findings:[F#...]}]}. "
+         "Validate and render the final answer. answer = {headline, body, claims:[typed claims: {kind: fact|inference, text, "
+         "support:[F#]} | {kind: comparison, findings:[F#..], relation, periods_differ?} | {kind: ranking, findings:[F#]} | "
+         "{kind: hypothesis, text, support, alternatives:[...]} | {kind: external, text, source: W#, quote}], "
+         "assumptions:[...], limitations:[...], charts:[{type: auto|bar|line|scatter|table, title, findings:[F#...]}]}. "
+         "Code checks that each claim's evidence supports its kind (relations, ranks, compatibility, staleness). "
          "Charts take their values from the cited findings (comparisons -> bar, monthly series -> line). Write every number as a placeholder {F#} (or {F#.period}, "
          "{F#.label}, {F#.name}); literal numbers are rejected. Evidence, methodology and caveats are appended automatically.",
          {"type": "object", "properties": {"answer": _ANSWER}, "required": ["answer"]}, _compose),

@@ -107,7 +107,9 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
                  value=sc, unit="points (0-100, anchored scales)", fmt="number", epistemic_class="calculated",
                  definition="Σ weight × anchored score of: " + "; ".join(
                      f"{c['label']} [{c['lo']}→{c['hi']}, {c['scale']}] w={wi}" for c, wi in zip(comps, w)),
-                 formula_version=cfg["model_version"], subject={"airport": aid, "airport_code": code, "rank": rank},
+                 formula_version=cfg["model_version"],
+                 subject={"airport": aid, "airport_code": code, "rank": rank, "of": len(order),
+                          "scenario_ranks": {n: ranks_by_scen[n][aid] for n in weights}},
                  window={"label": "see inputs"}, sources=[s for x in fs for s in x.sources],
                  caveats=[cfg["disclaimer"], "TAF component is an FAA forecast (unconstrained)."], inputs=[x.id for x in fs])
         flags = []

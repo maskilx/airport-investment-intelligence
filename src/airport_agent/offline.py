@@ -314,30 +314,44 @@ class OfflineBackend:
                             vals[row.get("airport")] = (row[mk]["id"], row[mk].get("value"))
                 if len(fids) > 1:
                     charts.append({"type": "bar", "title": "", "findings": fids})
-                    hi = [a for a, (f, v) in vals.items() if isinstance(v, (int, float)) and v == max(
-                        x[1] for x in vals.values() if isinstance(x[1], (int, float)))]
-                    if hi and len(vals) > 1:
-                        claims.append({"kind": "inference", "text": f"{hi[0]} has the highest value on this measure "
-                                       f"({_nice(mk)}) among the airports compared.",
-                                       "support": [vals[a][0] for a in vals]})
+                    num = sorted(((v, f) for f, v in vals.values() if isinstance(v, (int, float))), key=lambda x: -x[0])
+                    if len(num) > 1:
+                        # a typed comparison: code checks compatibility + direction and writes the sentence
+                        from airport_analytics.claims import SIMILAR_REL_TOL
+                        tie = abs(num[0][0] - num[1][0]) <= SIMILAR_REL_TOL * max(abs(num[0][0]), abs(num[1][0]), 1e-12)
+                        if len(num) == 2:
+                            rel = "similar" if tie else "higher"
+                        else:
+                            rel = None if tie else "highest"
+                        if rel:
+                            claims.append({"kind": "comparison", "relation": rel, "findings": [f for _, f in num]})
         trend = [r for _, r in ok if r.get("op") == "trend"]
         if trend and trend[0].get("table"):
             fids = [v["id"] for row in trend[0]["table"] for k, v in row.items() if isinstance(v, dict) and "id" in v]
             charts.append({"type": "line", "title": "Monthly series", "findings": fids})
         head = {"congestion": "Congestion indicators", "long_haul": "Long-haul share of departures",
-                "unmet": "Indicators of unmet demand", "trend": "Trend"}.get(intent, "Requested metrics")
+                "unmet": "Demand-pressure indicators", "trend": "Trend"}.get(intent, "Requested metrics")
         ans = {"headline": f"{head}: {', '.join(a for a in by_ap if a)}", "body": "\n\n".join(body), "claims": claims,
                "assumptions": [], "limitations": lim, "charts": charts}
         if intent == "congestion":
             ans["assumptions"].append("Congestion is read from airside indicators (delay rate, taxi-out, scheduled "
                                       "peak hour, tower operations); terminal/landside congestion is not in the data.")
         if intent == "long_haul":
-            ans["assumptions"].append("Long-haul is defined by segment distance; the alternative thresholds and weights "
-                                      "are shown because the question's definition is open.")
+            ans["assumptions"].append("Long-haul is defined by segment distance; the question leaves the definition "
+                                      "open, so alternative thresholds and weights are shown unless the analyst sets a threshold.")
         if intent == "unmet":
+            ind = [f for _, k, f in cells if k.split("(")[0] in ("seat_factor", "tight_capacity_pax_share",
+                                                                  "peak_hour_ops_p95", "dep_delay15_rate")]
             ans["claims"].append({"kind": "hypothesis", "text": "High seat factors, a large share of passengers on "
                                   "capacity-tight routes and a busy scheduled peak are consistent with demand exceeding "
-                                  "supply, but unmet demand itself is not observed in this data.", "support": []})
+                                  "supply, but unmet demand itself is not observed in this data.", "support": ind[:8],
+                                  "alternatives": [
+                                      "airlines may run high load factors by network and pricing choice, not because "
+                                      "seats are scarce",
+                                      "peak-hour pressure may reflect schedule banking (hub waves) rather than "
+                                      "demand that cannot be served",
+                                      "airfield, slot or gate-allocation rules may limit supply independently of "
+                                      "terminal size"]})
             ans["limitations"].append("Unmet demand is not directly measurable here (no fares, spill or booking data).")
         return ans
 
@@ -356,11 +370,8 @@ class OfflineBackend:
             fids.append(row["score"]["id"])
             claims.append({"kind": "fact", "text": f"{row['airport']} screens at {{{row['score']['id']}}}.",
                            "support": [row["score"]["id"]]})
-        shift = r.get("max_rank_shift_across_scenarios") or {}
-        stable = [a for a, s in shift.items() if s == 0]
-        if stable:
-            claims.append({"kind": "inference", "text": f"The position of {', '.join(stable)} does not change across the "
-                           "weighting scenarios, so it is robust to the weight choice.", "support": fids[:3]})
+        if fids:      # rank, set size and robustness across weighting scenarios are written by code from findings
+            claims.append({"kind": "ranking", "findings": fids[:3]})
         below = [b["airport"] for b in (r.get("gate") or {}).get("below_scale", [])]
         if below:
             lim.append("Below the passenger-scale gate and not scored: " + ", ".join(below) + ".")

@@ -178,3 +178,115 @@ def test_offline_threshold_follow_up_binds_and_reruns():
     assert lh and all("min_miles=2000" in f.metric_id for f in lh)
     assert all(f.status == "stale" for f in a.evidence.all()
                if f.metric_id.startswith("long_haul_share") and "min_miles=2000" not in f.metric_id)
+
+
+# ---------------------------------------------------------------- stage 3: typed claims (semantic validity)
+@pytest.fixture(scope="module")
+def ev(S):
+    """A small fixed evidence set: seat factor SFO/LAX, delay LAX/SNA, TAF SFO FY2035, a NE screen."""
+    out = {}
+    agg = lambda m, codes, **kw: run(S, {"op": "aggregate", "metrics": [m], "entities": {"airports": codes},
+                                         "group_by": ["airport"], **kw})["findings"]
+    sf = agg("seat_factor", ["SFO", "LAX"])
+    out["sf_sfo"], out["sf_lax"] = [f["id"] for f in sorted(sf, key=lambda f: f["label"].find("LAX"))]
+    out["sf_sfo"] = next(f["id"] for f in sf if "SFO" in f["label"])
+    out["sf_lax"] = next(f["id"] for f in sf if "LAX" in f["label"])
+    out["taxi"] = {next(c for c in ("LAX", "SNA") if c in f["label"]): f["id"] for f in agg("avg_taxi_out_min", ["LAX", "SNA"])}
+    out["delay"] = {next(c for c in ("LAX", "SNA") if c in f["label"]): f["id"] for f in agg("dep_delay15_rate", ["LAX", "SNA"])}
+    out["pax_lax_cy"] = agg("passengers", ["LAX"], window={"cy": 2025})[0]["id"]
+    out["pax_sna_t12"] = agg("passengers", ["SNA"])[0]["id"]
+    out["taf_sfo"] = run(S, {"op": "aggregate", "metrics": [{"id": "taf_enplanements", "window": {"fy": 2035}}],
+                             "entities": {"airports": ["SFO"]}})["findings"][0]["id"]
+    scr = run(S, {"op": "screen", "entities": {"group": {"census_division": "New England"}}})
+    out["screen"] = [r["score"]["id"] for r in scr["table"]]
+    return out
+
+
+def errs(S, answer):
+    r = S.call("compose_answer", {"answer": answer})
+    return r.get("errors", []) if r.get("error") else []
+
+
+def test_reviewer_counterexample_guaranteed_profitable_is_rejected_everywhere(S, ev):
+    f = ev["sf_sfo"]
+    bad = [
+        {"headline": "SFO", "body": f"Seat factor {{{f}}}.", "claims": [
+            {"kind": "fact", "text": "SFO expansion is guaranteed profitable.", "support": [f]}]},
+        {"headline": "SFO expansion will be profitable", "body": f"{{{f}}}"},
+        {"headline": "SFO", "body": f"{{{f}}}", "claims": [
+            {"kind": "inference", "text": "High load factors mean expansion pays back quickly.", "support": [f]}]},
+        {"headline": "SFO", "body": f"{{{f}}}", "claims": [
+            {"kind": "financial", "text": "Expansion returns exceed the cost of capital.", "support": [f]}]},
+        {"headline": "SFO", "body": f"{{{f}}}", "limitations": ["Expansion at SFO is highly profitable."]},
+    ]
+    for a in bad:
+        assert errs(S, a), a
+
+
+def test_reviewer_counterexample_gates_in_2035_is_rejected(S, ev):
+    f, taf = ev["sf_sfo"], ev["taf_sfo"]
+    e = errs(S, {"headline": "SFO", "body": f"{{{f}}}", "claims": [
+        {"kind": "inference", "text": "SFO will need additional gates in 2035.", "support": [f]}]})
+    assert any("2035" in x for x in e) and any("gates" in x for x in e)
+    # citing the FY2035 forecast legitimises the year, but not the capacity-need claim
+    e = errs(S, {"headline": "SFO", "body": f"FAA forecast {{{taf}}}.", "claims": [
+        {"kind": "inference", "text": "SFO will need additional gates in 2035.", "support": [taf]}]})
+    assert e and not any("2035" in x for x in e)
+    # as a hypothesis with evidence and a competing explanation it is allowed, and labelled as such
+    assert not errs(S, {"headline": "SFO", "body": f"FAA forecast {{{taf}}}.", "claims": [
+        {"kind": "hypothesis", "text": "Forecast growth could require more gates by 2035.", "support": [taf],
+         "alternatives": ["airlines may up-gauge aircraft and absorb growth at existing gates"]}]})
+
+
+def test_comparison_direction_compatibility_and_periods_are_checked_by_code(S, ev):
+    t = ev["taxi"]
+    ok = {"headline": "Taxi-out", "body": "Airside indicator.", "claims": [
+        {"kind": "comparison", "relation": "higher", "findings": [t["LAX"], t["SNA"]]}]}
+    assert not errs(S, ok)
+    md = S.call("compose_answer", {"answer": ok})["markdown"]
+    assert "LAX is higher than SNA" in md
+    wrong = {**ok, "claims": [{"kind": "comparison", "relation": "lower", "findings": [t["LAX"], t["SNA"]]}]}
+    assert any("do not support" in x for x in errs(S, wrong))
+    near = {**ok, "claims": [{"kind": "comparison", "relation": "higher", "findings": [ev["delay"]["LAX"], ev["delay"]["SNA"]]}]}
+    assert any("similar" in x for x in errs(S, near))                   # 20.6% vs 20.5% is not a direction
+    mixed = {**ok, "claims": [{"kind": "comparison", "relation": "higher", "findings": [t["LAX"], ev["sf_lax"]]}]}
+    assert any("different things" in x for x in errs(S, mixed))
+    per = {**ok, "claims": [{"kind": "comparison", "relation": "higher", "findings": [ev["pax_lax_cy"], ev["pax_sna_t12"]]}]}
+    assert any("different periods" in x for x in errs(S, per))
+    per["claims"][0]["periods_differ"] = True
+    assert not errs(S, per)
+    assert "Periods differ" in S.call("compose_answer", {"answer": per})["markdown"]
+    slip = {**ok, "claims": [{"kind": "comparison", "relation": "higher", "findings": [t["LAX"], t["SNA"]],
+                              "text": "SNA is actually lower"}]}
+    assert errs(S, slip)                                                # model text may not restate direction
+    assert errs(S, {"headline": "LAX is busier than SNA", "body": "x"})  # comparisons outside a typed claim
+
+
+def test_rank_claims_need_rank_findings_and_render_robustness(S, ev):
+    t = ev["taxi"]
+    assert errs(S, {"headline": "Taxi", "body": "x", "claims": [{"kind": "ranking", "findings": [t["LAX"]]}]})
+    assert errs(S, {"headline": "Taxi", "body": "x", "claims": [
+        {"kind": "fact", "text": "LAX has the highest taxi-out.", "support": [t["LAX"]]}]})
+    top = ev["screen"][0]
+    ans = {"headline": "New England screen", "body": "Screening result.", "claims": [
+        {"kind": "ranking", "findings": [top], "text": "It is the strongest candidate on this growth screen."}]}
+    assert not errs(S, ans)
+    md = S.call("compose_answer", {"answer": ans})["markdown"]
+    assert "is ranked 1 of" in md and "weighting scenario" in md
+
+
+def test_hypothesis_needs_evidence_and_alternatives_and_caveats_need_negation(S, ev):
+    f = ev["sf_sfo"]
+    assert errs(S, {"headline": "SFO", "body": f"{{{f}}}", "claims": [
+        {"kind": "hypothesis", "text": "Demand is constrained by terminal capacity.", "support": [f]}]})
+    assert errs(S, {"headline": "SFO", "body": f"{{{f}}}", "claims": [
+        {"kind": "hypothesis", "text": "Demand is constrained by terminal capacity.", "alternatives": ["airline choice"]}]})
+    assert not errs(S, {"headline": "SFO", "body": f"{{{f}}}", "limitations": [
+        "Profitability and terminal capacity are not modelled; unmet demand is not observed."]})
+
+
+def test_legitimate_answers_still_pass(S, ev):
+    f = ev["pax_lax_cy"]
+    assert not errs(S, {"headline": "LAX traffic in 2025", "body": f"LAX carried {{{f}}} in CY2025.",
+                        "claims": [{"kind": "fact", "text": f"LAX carried {{{f}}} ({{{f}.period}}).", "support": [f]}],
+                        "assumptions": ["Passengers are T-100 segment passengers (all carriers)."]})
