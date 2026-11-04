@@ -1,0 +1,3 @@
+{"tool": "describe_catalog", "input": {}, "error": null}
+{"tool": "resolve_entities", "input": {"terms": ["Houston"]}, "error": null}
+{"tool": "describe_catalog", "input": {"metric": "tight_capacity_pax_share"}, "error": null}

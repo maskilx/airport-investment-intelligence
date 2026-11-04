@@ -1,0 +1,2 @@
+{"tool": "describe_catalog", "input": {}, "error": null}
+{"tool": "resolve_entities", "input": {"terms": ["Washington", "Washington DC", "Washington state", "major Washington airports", "DCA", "IAD", "BWI", "SEA", "Reagan", "Dulles"]}, "error": null}

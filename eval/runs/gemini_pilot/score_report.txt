@@ -1,0 +1,18 @@
+adversarial    1/2
+ambiguous      1/2
+known          0/3
+multi_step     0/2
+unanswerable   0/2
+unseen         1/3
+TOTAL 3 / 14
+ FAIL q001 known none {'finished': False, 'grounded': False}
+ FAIL q003 known none {'finished': False, 'grounded': False}
+ FAIL q007 known none {'finished': False, 'grounded': False, 'ops': False}
+ FAIL q011 unseen none {'finished': False, 'grounded': False}
+ FAIL q025 unseen none {'finished': False, 'grounded': False}
+ FAIL q031 multi_step none {'finished': False, 'grounded': False, 'entities': False, 'ops': False}
+ FAIL q035 multi_step none {'finished': False, 'grounded': False, 'entities': False, 'ops': False}
+ FAIL q049 ambiguous none {'finished': False, 'grounded': False, 'ops': False, 'clarify_or_assume': False, 'assumption': False}
+ FAIL q052 unanswerable none {'finished': False, 'grounded': False, 'refuse_or_flag': False}
+ FAIL q055 unanswerable none {'finished': False, 'grounded': False, 'refuse_or_flag': False}
+ FAIL q062 adversarial none {'finished': False, 'grounded': False, 'refuse_or_flag': False, 'assumption': False}

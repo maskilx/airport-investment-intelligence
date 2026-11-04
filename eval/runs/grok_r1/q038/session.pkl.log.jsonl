@@ -1,0 +1,155 @@
+{"tool": "describe_catalog", "input": {}, "error": null}
+{"tool": "describe_catalog", "input": {"metric": "freight_lbs"}, "error": null}
+{"tool": "describe_catalog", "input": {"metric": "all_departures"}, "error": null}
+{"tool": "describe_catalog", "input": {"metric": "departures"}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "rank", "metrics": ["freight_lbs"], "entities": {"group": {"min_enplanements": 10000}}, "window": {"cy": 2025}, "options": {"direction": "higher_better", "scaling": "minmax_in_set"}}}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "rank", "metrics": ["freight_lbs"], "entities": {"group": {"min_enplanements": 1}}, "window": {"cy": 2025}, "options": {"direction": "higher_better", "scaling": "minmax_in_set"}}}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metrics": ["freight_lbs"], "entities": {"group": {}}, "window": {"cy": 2025}, "group_by": ["airport"]}}, "error": "invalid_spec"}
+{"tool": "query_sql", "input": {"sql": "SELECT d.current_code AS code, sum(s.freight) AS freight_lbs FROM v_t100_segment s JOIN dim_airport d ON d.airport_id = s.origin_airport_id WHERE s.year = 2025 AND d.country = 'US' GROUP BY 1 ORDER BY freight_lbs DESC LIMIT 15"}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "trend", "metrics": ["all_departures", "departures"], "entities": {"airports": ["ANC", "MEM", "SDF", "MIA", "LAX", "ORD", "CVG", "JFK", "IND", "ONT"]}, "window": {"t12": true}}}, "error": null}
+{"tool": "get_finding", "input": {"id": "F887"}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metrics": ["all_departures", "departures"], "entities": {"airports": ["ANC", "MEM", "SDF", "MIA", "LAX", "ORD", "CVG", "JFK", "IND", "ONT"]}, "window": {"t12": true}, "group_by": ["airport"]}}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3538", "F3548"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3539", "F3549"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3540", "F3550"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3541", "F3551"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3542", "F3552"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3543", "F3553"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3544", "F3554"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3545", "F3555"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3546", "F3556"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3547", "F3557"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3278", "F3398"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3288", "F3408"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3298", "F3418"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3308", "F3428"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3318", "F3438"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3328", "F3448"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3338", "F3458"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3348", "F3468"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3358", "F3478"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3368", "F3488"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3378", "F3498"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3388", "F3508"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3279", "F3399"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3289", "F3409"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3299", "F3419"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3309", "F3429"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3319", "F3439"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3329", "F3449"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3339", "F3459"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3349", "F3469"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3359", "F3479"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3369", "F3489"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3379", "F3499"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3389", "F3509"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3280", "F3400"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3290", "F3410"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3300", "F3420"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3310", "F3430"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3320", "F3440"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3330", "F3450"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3340", "F3460"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3350", "F3470"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3360", "F3480"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3370", "F3490"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3380", "F3500"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3390", "F3510"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3281", "F3401"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3291", "F3411"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3301", "F3421"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3311", "F3431"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3321", "F3441"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3331", "F3451"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3341", "F3461"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3351", "F3471"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3361", "F3481"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3371", "F3491"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3381", "F3501"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3391", "F3511"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3282", "F3402"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3292", "F3412"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3302", "F3422"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3312", "F3432"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3322", "F3442"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3332", "F3452"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3342", "F3462"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3352", "F3472"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3362", "F3482"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3372", "F3492"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3382", "F3502"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3392", "F3512"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3283", "F3403"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3293", "F3413"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3303", "F3423"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3313", "F3433"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3323", "F3443"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3333", "F3453"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3343", "F3463"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3353", "F3473"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3363", "F3483"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3373", "F3493"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3383", "F3503"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3393", "F3513"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3284", "F3404"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3294", "F3414"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3304", "F3424"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3314", "F3434"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3324", "F3444"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3334", "F3454"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3344", "F3464"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3354", "F3474"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3364", "F3484"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3374", "F3494"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3384", "F3504"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3394", "F3514"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3285", "F3405"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3295", "F3415"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3305", "F3425"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3315", "F3435"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3325", "F3445"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3335", "F3455"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3345", "F3465"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3355", "F3475"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3365", "F3485"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3375", "F3495"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3385", "F3505"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3395", "F3515"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3286", "F3406"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3296", "F3416"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3306", "F3426"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3316", "F3436"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3326", "F3446"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3336", "F3456"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3346", "F3466"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3356", "F3476"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3366", "F3486"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3376", "F3496"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3386", "F3506"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3396", "F3516"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3287", "F3407"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3297", "F3417"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3307", "F3427"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3317", "F3437"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3327", "F3447"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3337", "F3457"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3347", "F3467"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3357", "F3477"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3367", "F3487"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3377", "F3497"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3387", "F3507"]}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F3397", "F3517"]}, "error": null}
+{"tool": "derive", "input": {"op": "difference", "findings": ["F3579", "F3568"]}, "error": null}
+{"tool": "derive", "input": {"op": "difference", "findings": ["F3591", "F3580"]}, "error": null}
+{"tool": "derive", "input": {"op": "difference", "findings": ["F3603", "F3592"]}, "error": null}
+{"tool": "derive", "input": {"op": "difference", "findings": ["F3615", "F3604"]}, "error": null}
+{"tool": "derive", "input": {"op": "difference", "findings": ["F3627", "F3616"]}, "error": null}
+{"tool": "derive", "input": {"op": "difference", "findings": ["F3639", "F3628"]}, "error": null}
+{"tool": "derive", "input": {"op": "difference", "findings": ["F3651", "F3640"]}, "error": null}
+{"tool": "derive", "input": {"op": "difference", "findings": ["F3663", "F3652"]}, "error": null}
+{"tool": "derive", "input": {"op": "difference", "findings": ["F3675", "F3664"]}, "error": null}
+{"tool": "derive", "input": {"op": "difference", "findings": ["F3687", "F3676"]}, "error": null}
+{"tool": "get_finding", "input": {"id": "F3568"}, "error": null}
+{"tool": "get_finding", "input": {"id": "F3538"}, "error": null}
+{"tool": "resolve_entities", "input": {"terms": ["ANC", "MEM", "SDF", "MIA", "LAX", "ORD", "CVG", "JFK", "IND", "ONT", "DFW", "PIE", "PGD"]}, "error": null}
+{"tool": "compose_answer", "input": {"answer": {"headline": "ANC leads CY 2025 enplaned freight; T12 all-to-passenger departure ratios differ across that set", "body": "Observed enplaned freight pounds over {F887.period} order US airports with recorded enplanements. Cargo-heavy is read here as highest freight pounds, not as a cargo-share cutoff and not as FAA landed weight. The score is a calculated minmax scaling of that freight inside the set; it restates the same order. This is not the multi-factor investment screen and not a valuation, so it carries no scenario flag, gate, or concentration flag.\n\n1. ANC, Ted Stevens Anchorage International Airport \u2014 {F887}}; score {F2044}\n2. MEM, Frederick W. Smith International Airport \u2014 {F1468}}; score {F2045}\n3. SDF, Louisville Muhammad Ali International Airport \u2014 {F1746}}; score {F2046}\n4. MIA, Miami International Airport \u2014 {F1480}}; score {F2047}\n5. LAX, Los Angeles International Airport \u2014 {F1399}}; score {F2048}\n6. ORD, Chicago O'Hare International Airport \u2014 {F1592}}; score {F2049}\n7. CVG, Cincinnati Northern Kentucky International Airport \u2014 {F1059}}; score {F2050}\n8. JFK, John F. Kennedy International Airport \u2014 {F1319}}; score {F2051}\n9. IND, Indianapolis International Airport \u2014 {F1300}}; score {F2052}\n10. ONT, Ontario International Airport \u2014 {F1587}}; score {F2053}\n\nDFW, Dallas Fort Worth International Airport, is the next airport, at {F1081} (score {F2054}).\n\nEqual freight, with equal scores, appears at PIE ({F1633}, score {F2717}) and at PGD ({F1623}, score {F2718}). The rank operator still sequences equal values rather than assigning a shared rank. Freight totals in the leading list are distinct from each other.\n\nThe departure ratio is all departures, including cargo configurations, divided by passenger departures on passenger, combi, and seaplane aircraft. Inputs are observed; each ratio is calculated. The T12 level uses {F3538.period} and is a ratio of sums, not an average across months. The monthly table is the trend of that ratio. No fitted slope of the ratio itself is available. Slopes further down describe both departure series and include seasonality.\n\nT12 ratio of sums, in the freight order:\n\n1. ANC, Ted Stevens Anchorage International Airport \u2014 {F3558}\n2. MEM, Frederick W. Smith International Airport \u2014 {F3563}\n3. SDF, Louisville Muhammad Ali International Airport \u2014 {F3567}\n4. MIA, Miami International Airport \u2014 {F3564}\n5. LAX, Los Angeles International Airport \u2014 {F3562}\n6. ORD, Chicago O'Hare International Airport \u2014 {F3566}\n7. CVG, Cincinnati Northern Kentucky International Airport \u2014 {F3559}\n8. JFK, John F. Kennedy International Airport \u2014 {F3561}\n9. IND, Indianapolis International Airport \u2014 {F3560}\n10. ONT, Ontario International Airport \u2014 {F3565}\n\nMonthly ratio, August 2025 through July 2026. The final column is the July 2026 value minus the August 2025 value.\n\n| Airport | Aug 2025 | Sep 2025 | Oct 2025 | Nov 2025 | Dec 2025 | Jan 2026 | Feb 2026 | Mar 2026 | Apr 2026 | May 2026 | Jun 2026 | Jul 2026 | Jul 2026 minus Aug 2025 |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n| ANC, Ted Stevens Anchorage International Airport | {F3568} | {F3569} | {F3570} | {F3571} | {F3572} | {F3573} | {F3574} | {F3575} | {F3576} | {F3577} | {F3578} | {F3579} | {F3688} |\n| MEM, Frederick W. Smith International Airport | {F3628} | {F3629} | {F3630} | {F3631} | {F3632} | {F3633} | {F3634} | {F3635} | {F3636} | {F3637} | {F3638} | {F3639} | {F3693} |\n| SDF, Louisville Muhammad Ali International Airport | {F3676} | {F3677} | {F3678} | {F3679} | {F3680} | {F3681} | {F3682} | {F3683} | {F3684} | {F3685} | {F3686} | {F3687} | {F3697} |\n| MIA, Miami International Airport | {F3640} | {F3641} | {F3642} | {F3643} | {F3644} | {F3645} | {F3646} | {F3647} | {F3648} | {F3649} | {F3650} | {F3651} | {F3694} |\n| LAX, Los Angeles International Airport | {F3616} | {F3617} | {F3618} | {F3619} | {F3620} | {F3621} | {F3622} | {F3623} | {F3624} | {F3625} | {F3626} | {F3627} | {F3692} |\n| ORD, Chicago O'Hare International Airport | {F3664} | {F3665} | {F3666} | {F3667} | {F3668} | {F3669} | {F3670} | {F3671} | {F3672} | {F3673} | {F3674} | {F3675} | {F3696} |\n| CVG, Cincinnati Northern Kentucky International Airport | {F3580} | {F3581} | {F3582} | {F3583} | {F3584} | {F3585} | {F3586} | {F3587} | {F3588} | {F3589} | {F3590} | {F3591} | {F3689} |\n| JFK, John F. Kennedy International Airport | {F3604} | {F3605} | {F3606} | {F3607} | {F3608} | {F3609} | {F3610} | {F3611} | {F3612} | {F3613} | {F3614} | {F3615} | {F3691} |\n| IND, Indianapolis International Airport | {F3592} | {F3593} | {F3594} | {F3595} | {F3596} | {F3597} | {F3598} | {F3599} | {F3600} | {F3601} | {F3602} | {F3603} | {F3690} |\n| ONT, Ontario International Airport | {F3652} | {F3653} | {F3654} | {F3655} | {F3656} | {F3657} | {F3658} | {F3659} | {F3660} | {F3661} | {F3662} | {F3663} | {F3695} |\n\nDescriptive linear slope of monthly departure counts over the same T12 window:\n\n| Airport | All-departures slope per month | Passenger-departures slope per month |\n|---|---|---|\n| ANC, Ted Stevens Anchorage International Airport | {F3518} | {F3528} |\n| MEM, Frederick W. Smith International Airport | {F3523} | {F3533} |\n| SDF, Louisville Muhammad Ali International Airport | {F3527} | {F3537} |\n| MIA, Miami International Airport | {F3524} | {F3534} |\n| LAX, Los Angeles International Airport | {F3522} | {F3532} |\n| ORD, Chicago O'Hare International Airport | {F3526} | {F3536} |\n| CVG, Cincinnati Northern Kentucky International Airport | {F3519} | {F3529} |\n| JFK, John F. Kennedy International Airport | {F3521} | {F3531} |\n| IND, Indianapolis International Airport | {F3520} | {F3530} |\n| ONT, Ontario International Airport | {F3525} | {F3535} |\n\nAn exploratory query of freight pounds for every US T-100 origin, used because the full airport directory exceeds the catalog rank size limit, shows the same leading order. Those figures are exploratory, not catalog metrics: ANC {F3263}, MEM {F3264}, SDF {F3265}, MIA {F3266}, LAX {F3267}, ORD {F3268}, CVG {F3269}, JFK {F3270}, IND {F3271}, ONT {F3272}.\n", "claims": [{"kind": "fact", "text": "Over {F887.period}, observed enplaned freight orders ANC, MEM, SDF, MIA, LAX, ORD, CVG, JFK, IND, and ONT, with DFW next. Scores are the calculated minmax restatement of that order.", "support": ["F887", "F1468", "F1746", "F1480", "F1399", "F1592", "F1059", "F1319", "F1300", "F1587", "F1081", "F2044", "F2045", "F2046", "F2047", "F2048", "F2049", "F2050", "F2051", "F2052", "F2053", "F2054"]}, {"kind": "fact", "text": "PIE and PGD have equal enplaned freight and equal set-relative scores. The operator still places equal values in sequence rather than as a shared rank.", "support": ["F1633", "F1623", "F2717", "F2718"]}, {"kind": "fact", "text": "The T12 ratio of all departures to passenger departures, calculated as a ratio of sums over {F3538.period}, is reported for ANC, MEM, SDF, MIA, LAX, ORD, CVG, JFK, IND, and ONT.", "support": ["F3558", "F3563", "F3567", "F3564", "F3562", "F3566", "F3559", "F3561", "F3560", "F3565", "F3538"]}, {"kind": "fact", "text": "Monthly calculated ratios from August 2025 through July 2026, and the July 2026 minus August 2025 change, are reported for ANC, MEM, SDF, MIA, LAX, ORD, CVG, JFK, IND, and ONT.", "support": ["F3568", "F3569", "F3570", "F3571", "F3572", "F3573", "F3574", "F3575", "F3576", "F3577", "F3578", "F3579", "F3628", "F3629", "F3630", "F3631", "F3632", "F3633", "F3634", "F3635", "F3636", "F3637", "F3638", "F3639", "F3676", "F3677", "F3678", "F3679", "F3680", "F3681", "F3682", "F3683", "F3684", "F3685", "F3686", "F3687", "F3640", "F3641", "F3642", "F3643", "F3644", "F3645", "F3646", "F3647", "F3648", "F3649", "F3650", "F3651", "F3616", "F3617", "F3618", "F3619", "F3620", "F3621", "F3622", "F3623", "F3624", "F3625", "F3626", "F3627", "F3664", "F3665", "F3666", "F3667", "F3668", "F3669", "F3670", "F3671", "F3672", "F3673", "F3674", "F3675", "F3580", "F3581", "F3582", "F3583", "F3584", "F3585", "F3586", "F3587", "F3588", "F3589", "F3590", "F3591", "F3604", "F3605", "F3606", "F3607", "F3608", "F3609", "F3610", "F3611", "F3612", "F3613", "F3614", "F3615", "F3592", "F3593", "F3594", "F3595", "F3596", "F3597", "F3598", "F3599", "F3600", "F3601", "F3602", "F3603", "F3652", "F3653", "F3654", "F3655", "F3656", "F3657", "F3658", "F3659", "F3660", "F3661", "F3662", "F3663", "F3688", "F3693", "F3697", "F3694", "F3692", "F3696", "F3689", "F3691", "F3690", "F3695"]}, {"kind": "fact", "text": "Descriptive monthly slopes of all departures and of passenger departures over the T12 window are reported for ANC, MEM, SDF, MIA, LAX, ORD, CVG, JFK, IND, and ONT.", "support": ["F3518", "F3523", "F3527", "F3524", "F3522", "F3526", "F3519", "F3521", "F3520", "F3525", "F3528", "F3533", "F3537", "F3534", "F3532", "F3536", "F3529", "F3531", "F3530", "F3535"]}, {"kind": "fact", "text": "An exploratory query of every US T-100 origin shows the same leading freight order: ANC, MEM, SDF, MIA, LAX, ORD, CVG, JFK, IND, and ONT.", "support": ["F3263", "F3264", "F3265", "F3266", "F3267", "F3268", "F3269", "F3270", "F3271", "F3272"]}, {"kind": "inference", "text": "Freight rank and the T12 departure-ratio pattern are not the same thing. SDF, MEM, and ANC sit far from parity on the ratio, while ORD, JFK, and LAX stay near parity even with high freight pounds.", "support": ["F3567", "F3563", "F3558", "F3566", "F3561", "F3562", "F1746", "F1468", "F887", "F1592", "F1319", "F1399"]}, {"kind": "inference", "text": "Freight pounds add belly freight and freighter freight on departing segments. The departure ratio only compares configurations. Belly freight can raise pounds without moving the ratio, as at ANC where freight {F887} sits beside T12 ratio {F3558}.", "support": ["F887", "F3558"]}, {"kind": "inference", "text": "The August 2025 to July 2026 change compares different months, so it is not a same-season trend. Inside the monthly series, ANC, SDF, and ONT are highest in December 2025 and MEM is highest in February 2026.", "support": ["F3568", "F3569", "F3570", "F3571", "F3572", "F3573", "F3574", "F3575", "F3576", "F3577", "F3578", "F3579", "F3676", "F3677", "F3678", "F3679", "F3680", "F3681", "F3682", "F3683", "F3684", "F3685", "F3686", "F3687", "F3652", "F3653", "F3654", "F3655", "F3656", "F3657", "F3658", "F3659", "F3660", "F3661", "F3662", "F3663", "F3628", "F3629", "F3630", "F3631", "F3632", "F3633", "F3634", "F3635", "F3636", "F3637", "F3638", "F3639", "F3572", "F3680", "F3656", "F3634"]}, {"kind": "hypothesis", "text": "The winter highs may reflect a seasonal cargo calendar. This dataset does not establish that cause.", "support": []}], "assumptions": ["Cargo-heavy means the airports with the highest observed enplaned freight pounds. It is not an FAA all-cargo designation and not a minimum share of departures.", "The year 2025 in the rank is calendar year, matching the freight window, not a federal fiscal year.", "The ratio trend is for each airport in that leading freight set, over the T12 window, rather than a single national total.", "Higher freight pounds rank higher. The score uses minmax scaling inside the ranked set."], "limitations": ["Unmet demand, terminal capacity, fares, and profitability are not measured here and are not implied by freight rank or by the departure ratio.", "This is not the multi-factor investment screen, so scenario weights, gates, and concentration flags are not part of the result, and it is not a valuation.", "The set-relative score would change if airports were added or removed. Equal freight is still given sequential positions rather than a shared rank.", "RVR and AFE were inside the ranked set but had no freight-pounds result, so they were not scored.", "Airports with no recorded enplanements were outside the catalog rank because the full US directory exceeds the analysis size limit. The exploratory T-100 query is the check on that gap, and it is labelled exploratory.", "Freight is departing-segment pounds, not landed weight and not cargo revenue. The departure ratio is not cargo pounds per flight.", "The freight window and the T12 departure window are different. Only part of CY 2025 sits inside the T12 window.", "Monthly slopes include seasonality and describe departure counts, not the ratio. No fitted slope of the ratio was calculated.", "Passenger departures cover passenger, combi, and seaplane configurations only. Other configurations, including freight aircraft, sit in all departures and outside that denominator."]}}, "error": null}

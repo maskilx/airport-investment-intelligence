@@ -1,0 +1,29 @@
+{"tool": "describe_catalog", "input": {}, "error": null}
+{"tool": "describe_catalog", "input": {"metric": "grants_awarded_usd"}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {}}, "error": "invalid_spec"}
+{"tool": "run_analysis", "input": {"spec": {"op": "rank"}}, "error": "invalid_spec"}
+{"tool": "run_analysis", "input": {"spec": {"op": "rank", "metrics": ["grants_awarded_usd"], "window": {"fy_range": [2021, 2025]}, "entity_group_filters": {"hub_class": "nonhub"}}}, "error": "invalid_spec"}
+{"tool": "query_sql", "input": {"sql": "SELECT DISTINCT hub_class FROM airports"}, "error": "invalid_spec"}
+{"tool": "query_sql", "input": {"sql": "SELECT DISTINCT hub_class FROM dim_airport"}, "error": "invalid_spec"}
+{"tool": "query_sql", "input": {"sql": "SELECT * FROM dim_airport LIMIT 1"}, "error": null}
+{"tool": "query_sql", "input": {"sql": "SELECT * FROM dim_airport_faa LIMIT 1"}, "error": null}
+{"tool": "query_sql", "input": {"sql": "SELECT DISTINCT faa_hub_class, faa_service_level FROM dim_airport_faa"}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "rank", "metrics": ["grants_awarded_usd"], "window": {"fy_range": [2021, 2025]}, "entities": {"group": {"hub_class": "nonhub"}}}}, "error": "unknown_entity"}
+{"tool": "run_analysis", "input": {"spec": {"op": "rank", "metrics": ["grants_awarded_usd"], "window": {"fy_range": [2021, 2025]}, "entities": {"group": {"hub_class": "N"}}}}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metrics": ["grants_awarded_usd"], "window": {"fy_range": [2021, 2025]}, "entities": {"group": {"hub_class": "None"}}}}, "error": null}
+{"tool": "query_sql", "input": {"sql": "SELECT faa_hub_class, faa_service_level, count(*) as cnt FROM dim_airport_faa GROUP BY 1, 2"}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "rank", "metrics": ["grants_awarded_usd"], "window": {"fy_range": [2021, 2025]}, "entities": {"group": {"hub_class": "N"}}, "top_n": 10}}, "error": null}
+{"tool": "get_finding", "input": {"id": "F810"}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metrics": ["grants_awarded_usd"], "window": {"fy_range": [2021, 2025]}, "entities": {"group": {"hub_class": "N"}}, "group_by": []}}, "error": null}
+{"tool": "derive", "input": {"op": "ratio", "findings": ["F810", "F1242"]}, "error": null}
+{"tool": "derive", "input": {"op": "difference", "findings": ["F810", "F876"]}, "error": null}
+{"tool": "query_sql", "input": {"sql": "SELECT current_code, name FROM dim_airport WHERE current_code IN (\"GJT\", \"MRY\", \"RST\", \"ADQ\", \"BQN\", \"DLH\", \"ABE\", \"GFK\", \"PIA\", \"PUW\", \"BKL\", \"MKL\")"}, "error": "invalid_spec"}
+{"tool": "resolve_entities", "input": {"terms": ["GJT", "MRY", "RST", "ADQ", "BQN", "DLH", "ABE", "GFK", "PIA", "PUW"]}, "error": null}
+{"tool": "resolve_entities", "input": {"terms": ["BKL", "MKL"]}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metrics": ["grants_awarded_usd"], "window": {"fy_range": [2021, 2025]}, "entities": {"airports": ["BKL"]}}}, "error": null}
+{"tool": "compose_answer", "input": {"answer": {}}, "error": "grounding_validation_failed"}
+{"tool": "compose_answer", "input": {"answer": {"headline": "Test", "body": "Test body with number 5", "claims": [], "assumptions": [], "limitations": []}}, "error": "grounding_validation_failed"}
+{"tool": "compose_answer", "input": {"answer": {"headline": "Test FY2021", "body": "Test body", "claims": [], "assumptions": [], "limitations": []}}, "error": null}
+{"tool": "compose_answer", "input": {"answer": {"headline": "Test", "body": "Test FY2021", "claims": [], "assumptions": [], "limitations": []}}, "error": null}
+{"tool": "get_finding", "input": {"id": "F696"}, "error": null}
+{"tool": "compose_answer", "input": {"answer": {"headline": "Test FY2021 to FY2025", "body": "Test FY2021 to FY2025", "claims": [], "assumptions": [], "limitations": []}}, "error": null}

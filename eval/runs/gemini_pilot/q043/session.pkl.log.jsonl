@@ -1,0 +1,2 @@
+{"tool": "describe_catalog", "input": {}, "error": null}
+{"tool": "resolve_entities", "input": {"terms": ["Portland"]}, "error": null}

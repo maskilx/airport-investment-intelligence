@@ -1,0 +1,8 @@
+{"tool": "describe_catalog", "input": {}, "error": null}
+{"tool": "resolve_entities", "input": {"terms": ["John Wayne Airport", "SNA"]}, "error": null}
+{"tool": "describe_catalog", "input": {"metric": "passengers"}, "error": null}
+{"tool": "describe_catalog", "input": {"metric": "acais_enplanements"}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metric": "passengers", "window": {"cy": 2025}, "entity_group": {"airports": [14908]}}}, "error": "invalid_spec"}
+{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metrics": ["passengers"], "window": {"cy": 2025}, "entity_group": {"airports": [14908]}}}, "error": "invalid_spec"}
+{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metrics": ["passengers"], "window": {"cy": 2025}, "entities": {"airports": [14908]}}}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metrics": ["acais_enplanements"], "window": {"cy": 2025}, "entities": {"airports": [14908]}}}, "error": null}

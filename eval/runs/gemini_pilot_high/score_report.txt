@@ -1,0 +1,11 @@
+adversarial    0/1
+known          0/2
+multi_step     0/2
+unanswerable   0/1
+TOTAL 0 / 6
+ FAIL q003 known none {'finished': False, 'grounded': False, 'entities': False}
+ FAIL q007 known none {'finished': False, 'grounded': False, 'ops': False}
+ FAIL q031 multi_step none {'finished': False, 'grounded': False, 'entities': False, 'ops': False}
+ FAIL q035 multi_step none {'finished': False, 'grounded': False}
+ FAIL q052 unanswerable none {'finished': False, 'grounded': False, 'refuse_or_flag': False}
+ FAIL q062 adversarial none {'finished': False, 'grounded': False, 'ops': False, 'refuse_or_flag': False, 'assumption': False}

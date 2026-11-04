@@ -1,0 +1,12 @@
+{"tool": "describe_catalog", "input": {}, "error": null}
+{"tool": "describe_catalog", "input": {"metric": "intl_seat_share"}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "rank", "metric": "intl_seat_share", "window": {"cy": 2025}, "entity_group": {"hub_class": "large"}}}, "error": "invalid_spec"}
+{"tool": "run_analysis", "input": {"spec": {"op": "rank", "metrics": ["intl_seat_share"], "window": {"cy": 2025}, "entity_group": {"hub_class": "large"}}}, "error": "invalid_spec"}
+{"tool": "run_analysis", "input": {"spec": {"op": "rank", "metrics": ["intl_seat_share"], "window": {"cy": 2025}, "entities": {"group": {"hub_class": "large"}}}}, "error": "unknown_entity"}
+{"tool": "query_sql", "input": {"sql": "SELECT DISTINCT hub_class FROM airports"}, "error": "invalid_spec"}
+{"tool": "query_sql", "input": {"sql": "SELECT DISTINCT hub_class FROM dim_airport"}, "error": "invalid_spec"}
+{"tool": "query_sql", "input": {"sql": "SELECT * FROM dim_airport LIMIT 1"}, "error": null}
+{"tool": "query_sql", "input": {"sql": "SELECT * FROM dim_airport_faa LIMIT 1"}, "error": null}
+{"tool": "query_sql", "input": {"sql": "SELECT DISTINCT faa_hub_class FROM dim_airport_faa"}, "error": null}
+{"tool": "run_analysis", "input": {"spec": {"op": "rank", "metrics": ["intl_seat_share"], "window": {"cy": 2025}, "entities": {"group": {"hub_class": "L"}}}}, "error": null}
+{"tool": "get_finding", "input": {"id": "F26"}, "error": null}

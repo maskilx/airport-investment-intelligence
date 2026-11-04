@@ -38,6 +38,40 @@ def _policy() -> str:
     return SYSTEM_PROMPT
 
 
+GEMINI_ALLOW = '{"permissions":{"allow":["command(.venv/bin/python -m airport_analytics call)"]}}'
+
+
+def run_one_gemini(q: dict, out: Path, effort: str = "medium", timeout_s: int = 240) -> dict:
+    """Gemini via the user's Antigravity CLI (agy, account quota — no API). Same tools, same brief, same restriction."""
+    import time
+    d = out / q["id"]
+    d.mkdir(parents=True, exist_ok=True)
+    sess = d / "session.pkl"
+    for p in d.glob("session.pkl*"):
+        p.unlink()
+    prompt = AGENT_BRIEF.format(session=sess, policy=_policy(), question=q["question"])
+    model = f"gemini-3.8-flash-{effort}"
+    cmd = ["agy", f"--print-timeout={timeout_s}s", "--output-format", "json", "--model", model, "--effort", effort,
+           "--settings", GEMINI_ALLOW, f"--print={prompt}"]
+    t0 = time.time()
+    try:
+        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=timeout_s + 20)
+        raw = r.stdout
+    except subprocess.TimeoutExpired:
+        raw = "TIMEOUT"
+    dt = time.time() - t0
+    meta = {"model_requested": model, "effort": effort, "latency_s": round(dt, 1)}
+    try:
+        j = json.loads(raw)
+        meta.update(status=j.get("status"), turns=j.get("num_turns"), usage=j.get("usage"))
+        text = j.get("response", "")
+    except ValueError:
+        text = raw
+    (d / "agent_stdout.txt").write_text(text + "\n--- stderr ---\n")
+    (d / "run_meta.json").write_text(json.dumps(meta))
+    return {"id": q["id"], **meta}
+
+
 def run_one(q: dict, out: Path) -> dict:
     d = out / q["id"]
     d.mkdir(parents=True, exist_ok=True)
@@ -62,20 +96,37 @@ def score_one(q: dict, out: Path) -> dict:
     ans = (d / "session.pkl.answer.md").read_text() if (d / "session.pkl.answer.md").exists() else ""
     stdout = (d / "agent_stdout.txt").read_text() if (d / "agent_stdout.txt").exists() else ""
     tail = stdout.split("--- stderr ---")[0].strip().splitlines()
-    final_line = next((l for l in reversed(tail) if l.startswith(("CLARIFICATION:", "CANNOT_ANSWER:"))), "")
+    body = "\n".join(tail)
+    pos = max(body.rfind("CLARIFICATION:"), body.rfind("CANNOT_ANSWER:"))     # contract marker may follow a preamble
+    final_line = body[pos:].strip() if pos >= 0 else ""
+    if not ans and not final_line and tail:    # no prefix: judge the final message by meaning (refusal/clarification)
+        last = " ".join(tail[-6:])
+        if re.search(r"\?\s*$", last) or re.search(r"(do you mean|which (airport|one)|please (specify|clarify))", last, re.I):
+            final_line = "CLARIFICATION: " + last
+        elif re.search(r"(cannot|can't|not (available|established|possible|in the data|covered)|no (data|forecast)|"
+                       r"out of coverage|unable to)", last, re.I):
+            final_line = "CANNOT_ANSWER: " + last
     kind = "answer" if ans else ("clarification" if final_line.startswith("CLARIFICATION") else
                                  "cannot_answer" if final_line else "none")
     e = q.get("expect", {})
     text = (ans or final_line).lower()
     ops_used = {c["input"].get("spec", {}).get("op") for c in log if c["tool"] == "run_analysis" and isinstance(c.get("input"), dict)}
     blob = json.dumps(log).upper() + ans.upper()
+    HUB = {"LARGE_HUB": ['"L"', "LARGE HUB"], "MEDIUM_HUB": ['"M"', "MEDIUM HUB"], "SMALL_HUB": ['"S"', "SMALL HUB"],
+           "NON_HUB": ['"N"', "NON-HUB", "NONHUB"]}
+
+    def ent_ok(x):
+        x = str(x).upper().replace(" ", "_")
+        if x in HUB:   # enum equivalence: 'large_hub' == hub_class "L"
+            return any(tok in blob for tok in HUB[x]) and "HUB_CLASS" in blob
+        return x.replace("_", " ") in blob or x in blob
     checks = {}
     checks["finished"] = kind != "none"
     checks["grounded"] = kind == "answer" or (kind in ("clarification", "cannot_answer") and
                                               not re.search(r"\d", ALLOW.sub("", PH.sub("", final_line))))
     if e.get("entities"):
-        checks["entities"] = all(str(x).upper() in blob for x in e["entities"])
-    if e.get("ops"):
+        checks["entities"] = all(ent_ok(x) for x in e["entities"])
+    if e.get("ops") and not (kind == "clarification" and e.get("must_clarify")):   # a correct clarification needs no op
         checks["ops"] = bool(set(e["ops"]) & ops_used)
     if e.get("must_clarify"):
         checks["clarify_or_assume"] = kind == "clarification" or "assum" in text
@@ -103,6 +154,10 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--ids")
     ap.add_argument("--parallel", type=int, default=6)
+    ap.add_argument("--agent", choices=["grok", "gemini"], default="grok")
+    ap.add_argument("--effort", default="medium")
+    ap.add_argument("--timeout", type=int, default=240)
+    ap.add_argument("--deadline", type=float, default=0, help="unix time after which no new question starts")
     a = ap.parse_args()
     qs = [json.loads(l) for l in Path(a.questions).read_text().splitlines() if l.strip()]
     if a.ids:
@@ -111,8 +166,13 @@ def main():
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     if a.mode == "run":
+        import time
+        def go(q):
+            if a.deadline and time.time() > a.deadline:
+                return {"id": q["id"], "skipped": "deadline"}
+            return run_one_gemini(q, out, a.effort, a.timeout) if a.agent == "gemini" else run_one(q, out)
         with ThreadPoolExecutor(a.parallel) as ex:
-            for r in ex.map(lambda q: run_one(q, out), qs):
+            for r in ex.map(go, qs):
                 print(r, flush=True)
         return
     rows = [score_one(q, out) for q in qs]

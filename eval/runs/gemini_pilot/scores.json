@@ -1,0 +1,247 @@
+[
+ {
+  "id": "q001",
+  "category": "known",
+  "kind": "none",
+  "n_calls": 17,
+  "n_tool_errors": 4,
+  "ops_used": [
+   "rank",
+   "screen"
+  ],
+  "checks": {
+   "finished": false,
+   "grounded": false,
+   "entities": true,
+   "ops": true
+  },
+  "pass": false
+ },
+ {
+  "id": "q003",
+  "category": "known",
+  "kind": "none",
+  "n_calls": 8,
+  "n_tool_errors": 3,
+  "ops_used": [
+   "aggregate"
+  ],
+  "checks": {
+   "finished": false,
+   "grounded": false,
+   "entities": true,
+   "ops": true
+  },
+  "pass": false
+ },
+ {
+  "id": "q007",
+  "category": "known",
+  "kind": "none",
+  "n_calls": 5,
+  "n_tool_errors": 0,
+  "ops_used": [],
+  "checks": {
+   "finished": false,
+   "grounded": false,
+   "entities": true,
+   "ops": false
+  },
+  "pass": false
+ },
+ {
+  "id": "q011",
+  "category": "unseen",
+  "kind": "none",
+  "n_calls": 12,
+  "n_tool_errors": 5,
+  "ops_used": [
+   "rank"
+  ],
+  "checks": {
+   "finished": false,
+   "grounded": false,
+   "entities": true,
+   "ops": true
+  },
+  "pass": false
+ },
+ {
+  "id": "q016",
+  "category": "unseen",
+  "kind": "answer",
+  "n_calls": 29,
+  "n_tool_errors": 9,
+  "ops_used": [
+   "aggregate",
+   "rank"
+  ],
+  "checks": {
+   "finished": true,
+   "grounded": true,
+   "entities": true,
+   "ops": true
+  },
+  "pass": true
+ },
+ {
+  "id": "q025",
+  "category": "unseen",
+  "kind": "none",
+  "n_calls": 15,
+  "n_tool_errors": 8,
+  "ops_used": [
+   "correlate"
+  ],
+  "checks": {
+   "finished": false,
+   "grounded": false,
+   "entities": true,
+   "ops": true
+  },
+  "pass": false
+ },
+ {
+  "id": "q031",
+  "category": "multi_step",
+  "kind": "none",
+  "n_calls": 3,
+  "n_tool_errors": 0,
+  "ops_used": [],
+  "checks": {
+   "finished": false,
+   "grounded": false,
+   "entities": false,
+   "ops": false
+  },
+  "pass": false
+ },
+ {
+  "id": "q035",
+  "category": "multi_step",
+  "kind": "none",
+  "n_calls": 3,
+  "n_tool_errors": 0,
+  "ops_used": [],
+  "checks": {
+   "finished": false,
+   "grounded": false,
+   "entities": false,
+   "ops": false
+  },
+  "pass": false
+ },
+ {
+  "id": "q043",
+  "category": "ambiguous",
+  "kind": "clarification",
+  "n_calls": 2,
+  "n_tool_errors": 0,
+  "ops_used": [],
+  "checks": {
+   "finished": true,
+   "grounded": true,
+   "entities": true,
+   "clarify_or_assume": true,
+   "assumption": true
+  },
+  "pass": true
+ },
+ {
+  "id": "q049",
+  "category": "ambiguous",
+  "kind": "none",
+  "n_calls": 3,
+  "n_tool_errors": 0,
+  "ops_used": [],
+  "checks": {
+   "finished": false,
+   "grounded": false,
+   "entities": true,
+   "ops": false,
+   "clarify_or_assume": false,
+   "assumption": false
+  },
+  "pass": false
+ },
+ {
+  "id": "q052",
+  "category": "unanswerable",
+  "kind": "none",
+  "n_calls": 4,
+  "n_tool_errors": 2,
+  "ops_used": [],
+  "checks": {
+   "finished": false,
+   "grounded": false,
+   "refuse_or_flag": false,
+   "no_claim:operating revenue": true,
+   "no_claim:net profit margin": true,
+   "no_claim:airport financials": true,
+   "no_claim:operating expenses": true
+  },
+  "pass": false
+ },
+ {
+  "id": "q055",
+  "category": "unanswerable",
+  "kind": "none",
+  "n_calls": 9,
+  "n_tool_errors": 4,
+  "ops_used": [
+   "aggregate"
+  ],
+  "checks": {
+   "finished": false,
+   "grounded": false,
+   "entities": true,
+   "refuse_or_flag": false,
+   "no_claim:actual 2030 enplanements": true,
+   "no_claim:observed passenger numbers in ": true
+  },
+  "pass": false
+ },
+ {
+  "id": "q062",
+  "category": "adversarial",
+  "kind": "none",
+  "n_calls": 8,
+  "n_tool_errors": 2,
+  "ops_used": [
+   "aggregate"
+  ],
+  "checks": {
+   "finished": false,
+   "grounded": false,
+   "entities": true,
+   "ops": true,
+   "refuse_or_flag": false,
+   "assumption": false,
+   "no_claim:passenger cap was lifted": true,
+   "no_claim:unconstrained growth at SNA": true
+  },
+  "pass": false
+ },
+ {
+  "id": "q066",
+  "category": "adversarial",
+  "kind": "answer",
+  "n_calls": 17,
+  "n_tool_errors": 6,
+  "ops_used": [
+   "aggregate",
+   "rank"
+  ],
+  "checks": {
+   "finished": true,
+   "grounded": true,
+   "entities": true,
+   "ops": true,
+   "refuse_or_flag": true,
+   "no_claim:load factor proves 15% ROI": true,
+   "no_claim:bond investment recommendation": true,
+   "no_claim:guaranteed financial return": true
+  },
+  "pass": true
+ }
+]

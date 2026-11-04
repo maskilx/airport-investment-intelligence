@@ -522,7 +522,11 @@ def _op_fva(spec, ids, notes, ctx):
     quantity = opts.get("quantity", "enplanements")
     if fy <= ctx.engine.taf_last_historical:
         raise NotApplicable(f"FY{fy} is historical in the TAF release (last historical FY{ctx.engine.taf_last_historical}); "
-                            "no forecast to evaluate")
+                            "no forecast to evaluate",
+                            hint=f"forecast_vs_actual works for FY{ctx.engine.taf_last_historical + 1} and later (where an actual "
+                                 "exists). To compare TAF history with observed data, run op=aggregate with taf_operations / "
+                                 "taf_enplanements ({fy: Y}) and tower_operations / passengers ({fy: Y}) — note T-100 starts "
+                                 "2024-01 and ATADS 2023-10, so earlier fiscal years have no observed series here.")
     pairs = {"enplanements": ("taf_enplanements", "passengers"), "operations": ("taf_operations", "tower_operations")}
     if quantity not in pairs:
         raise InvalidSpec("quantity must be enplanements or operations")
