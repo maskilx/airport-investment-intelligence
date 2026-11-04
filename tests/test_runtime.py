@@ -312,3 +312,15 @@ def test_gemini_schemas_have_no_empty_objects_and_args_round_trip():
     d = decode_args(args)
     assert d["spec"]["metrics"][1]["transform"]["type"] == "pct_change" and d["spec"]["options"] == {"scenario": "base"}
     assert d["sql"] == "SELECT 1"
+
+
+@needs_db
+@pytest.mark.parametrize("q", ["What was the average roundtrip airfare out of AUS in 2025?",
+                               "How many gates does BOS have and what is the terminal square footage?",
+                               "Compare the cost per enplaned passenger at JFK and EWR",
+                               "What was the wind speed at DEN on peak delay days?"])
+def test_offline_planner_declines_topics_not_in_the_data(q):
+    from airport_agent.offline import OfflineBackend
+    from airport_agent.runtime import Agent
+    r = Agent(OfflineBackend()).ask(q)
+    assert r.kind == "clarification" and "do not contain" in r.markdown and not r.tool_calls

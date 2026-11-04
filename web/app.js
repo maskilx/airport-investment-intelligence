@@ -233,7 +233,7 @@ function renderAnswer(turnEl, e) {
   let card;
   if (!s) {
     card = h("div", { class: `answer ${e.kind === "error" ? "err-card" : ""}` },
-      h("div", { class: "a-head" }, h("h3", {}, e.kind === "clarification" ? "Before I run the numbers" : KIND_LABEL[e.kind] || e.kind),
+      h("div", { class: "a-head" }, h("h3", {}, e.kind === "clarification" ? "Before going further" : KIND_LABEL[e.kind] || e.kind),
         h("span", { class: "kind" }, KIND_LABEL[e.kind] || e.kind)),
       h("div", { class: "body", html: rich(e.markdown) }));
   } else {

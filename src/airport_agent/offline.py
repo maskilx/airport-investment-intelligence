@@ -39,6 +39,16 @@ METRIC_WORDS = [
     ("npias_need_usd", r"npias|capital need|development need"), ("taf_enplanements", r"forecast"),
     ("freight_lbs", r"freight|cargo"), ("avg_stage_length", r"stage length|distance"),
 ]
+NOT_IN_DATA = [   # topics the internal datasets do not measure -> say so instead of answering a nearby metric
+    (r"\b(air)?fares?\b|ticket price|yield", "airfares", "passenger volumes, seat capacity and seat factors"),
+    (r"\bgates?\b|square f(ee|oo)t|sq\.? ?ft|terminal (size|area|capacity)", "terminal gates or floor area",
+     "scheduled peak-hour operations, passengers and FAA forecasts"),
+    (r"cost per enplan|\bcpe\b|landing fees?|\brevenue|\bprofit|\bebitda|\bconcession|\bparking", "airport finances "
+     "(CPE, fees, revenues)", "FAA grants awarded and NPIAS development needs"),
+    (r"\bwind\b|precipitation|cloud ceiling|visibility|\bweather conditions?\b|temperature", "weather observations",
+     "weather-attributed delay minutes from the On-Time data"),
+    (r"security (wait|line)|\btsa wait|queue time", "security wait times", "passenger volumes and peak-hour schedules"),
+]
 CORRECTION = re.compile(r"\b(actually|i meant|instead|not .* but|rather|correction|i mean)\b", re.I)
 REFERENCE = re.compile(r"\b(that|this|those|these|same|it|its|them|their|earlier|previous|before|first one|second one|"
                        r"the airport|the other)\b", re.I)
@@ -117,6 +127,14 @@ class OfflineBackend:
         terms = self._terms(q)
         names = [u["name"] for u, _ in done]
 
+        # 0) topics that are not in the internal data: an honest answer, not a nearby metric
+        missing = [(what, alt) for rx, what, alt in NOT_IN_DATA if re.search(rx, q, re.I)]
+        if missing and not done:
+            whats = ", ".join(w for w, _ in missing)
+            alts = "; ".join(sorted({a for _, a in missing}))
+            return _text(f"[{LABEL}] The internal datasets do not contain {whats}, so I cannot answer that part from "
+                         f"evidence. What the data does cover nearby: {alts}. With the LLM backend, web research can add "
+                         "cited external context.")
         # 1) resolve named places (and record a correction as an assumption)
         if terms and "resolve_entities" not in names:
             calls = [_tu("resolve_entities", {"terms": terms})]
