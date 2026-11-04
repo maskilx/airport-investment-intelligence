@@ -168,3 +168,9 @@ Run: `.venv/bin/python tools/link_audit.py` (2026-11-04). It checks every distin
 | 200 | https://nasstatus.faa.gov/api/airport-status-information |  | xml/html |  |
 
 Browser check: in the running app, the inspector for a BTS On-Time finding shows 'Dataset page' plus monthly 'raw file' zips; a T-100 finding shows 'download form' with the access note; an ATADS finding links the ATADS form page (tested 2026-11-04).
+
+## Local-first evidence (follow-up, 2026-11-04)
+Publisher links are now secondary. Clicking a number opens the **local** evidence explorer: the calculation, the
+contributing rows, and the original downloaded file (preview and download from the local archive). The publisher
+section labels each link "Official dataset page", "Direct raw-file download" or "Download form", and says when a source
+has no public link.

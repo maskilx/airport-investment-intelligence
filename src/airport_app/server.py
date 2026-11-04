@@ -59,6 +59,9 @@ class App:
         self.web_enabled = os.environ.get("AIRPORT_WEB", "1") != "0" and getattr(self.backend, "name", "") not in ("offline",)
         self.web_factory = None
         self.agents: dict[str, Agent] = {}
+        from airport_agent.evidence_files import RawFiles
+        from airport_data.config import get_paths as _gp
+        self.raw_files = RawFiles(_gp().raw)                 # read-only, archive-only file access for the inspector
         from airport_agent.voice import Dedup, VoiceError, transcriber_from_env
         self.voice_dedup = Dedup()
         try:
@@ -210,6 +213,68 @@ def create_app(state: App | None = None) -> FastAPI:
                                for i in f.inputs if i in a.evidence]
         d["cited_in_turns"] = [x["turn"] for x in a.state.answers if fid in x.get("cited", [])]
         return d
+
+    # ---------------- local evidence explorer: data used, original files (read-only, bounded, archive-only)
+    @api.get("/api/conversations/{cid}/findings/{fid}/data")
+    def finding_data(cid: str, fid: str, page: int = 0):
+        from airport_analytics.evidence_data import data_used
+        a = st.agent(cid)
+        if fid not in a.evidence:
+            raise HTTPException(404, f"{fid} is not a finding of this conversation")
+        try:
+            eng = Engine(st.con.cursor())                    # own cursor: never shares one with a running turn
+            with eng.guard(20.0):
+                return data_used(eng, a.evidence.get(fid), a.evidence, page=page)
+        except Exception as e:                           # never break the inspector: report the traceability gap
+            return {"level": "source", "summary": "The underlying rows could not be listed for this result "
+                    f"({type(e).__name__}); the source files and periods are shown below."}
+
+    @api.get("/api/evidence/vintage/{source_id}/{period}/{vintage_id}")
+    def evidence_vintage(source_id: str, period: str, vintage_id: str):
+        from airport_agent.evidence_files import EvidenceFileError
+        try:
+            meta = st.raw_files.meta(source_id, period, vintage_id)
+        except EvidenceFileError as e:
+            raise HTTPException(e.status, str(e))
+        man = st.con.cursor().execute(
+            "SELECT validation_status, row_counts, stored_at, url FROM ingest_manifest WHERE source_id = ? AND period = ? "
+            "AND vintage_id = ?", [source_id, period, vintage_id]).fetchone()
+        src = st.prov.source(source_id) or {}
+        from airport_agent.provenance import link_for
+        req = meta.get("request") or {}
+        return {"source_id": source_id, "dataset": src.get("title") or meta.get("source_title"), "publisher": src.get("publisher"),
+                "license": meta.get("license"), "period": period, "vintage_id": vintage_id,
+                "downloaded_at": meta.get("stored_at"), "content_sha256": meta.get("content_sha256"),
+                "files": [{"name": f["name"], "bytes": f.get("bytes"), "sha256": f.get("sha256")} for f in meta.get("files", [])],
+                "request": {"method": req.get("method", "POST" if req.get("fields") else "GET"),
+                            "fields": len(req.get("fields") or [])},
+                "validation": man[0] if man else None,
+                "rows_loaded": json.loads(man[1]) if man and man[1] else None,
+                "publisher_links": ([{"label": "Official dataset page", "url": src["homepage"], "kind": "page"}]
+                                    if src.get("homepage") else []) + [
+                    {**l, "label": {"file": "Direct raw-file download", "form": "Download form"}.get(l["kind"], l["label"])}
+                    for l in link_for(source_id, meta.get("url"))]}
+
+    @api.get("/api/evidence/file/{source_id}/{period}/{vintage_id}/{name}/preview")
+    def evidence_preview(source_id: str, period: str, vintage_id: str, name: str, member: str | None = None,
+                         sheet: str | None = None, page: int = 0, find: str | None = None):
+        from airport_agent.evidence_files import EvidenceFileError
+        try:
+            p = st.raw_files.file(source_id, period, vintage_id, name)
+            return st.raw_files.preview(p, member=member, sheet=sheet, page=page, find=find)
+        except EvidenceFileError as e:
+            raise HTTPException(e.status, str(e))
+        except Exception as e:
+            raise HTTPException(422, f"preview not available ({type(e).__name__})")
+
+    @api.get("/api/evidence/file/{source_id}/{period}/{vintage_id}/{name}/download")
+    def evidence_download(source_id: str, period: str, vintage_id: str, name: str):
+        from airport_agent.evidence_files import EvidenceFileError
+        try:
+            p = st.raw_files.file(source_id, period, vintage_id, name)
+        except EvidenceFileError as e:
+            raise HTTPException(e.status, str(e))
+        return FileResponse(p, filename=p.name, media_type="application/octet-stream")
 
     @api.get("/api/conversations/{cid}/external/{wid}")
     def external(cid: str, wid: str):

@@ -406,6 +406,34 @@ async function showExternal(wid) {
     h("div", { class: "kicker" }, "Beginning of the fetched text"), h("pre", { class: "spec" }, w.excerpt));
 }
 
+// ---------------------------------------------------------------- local evidence explorer
+// Click a number: what it is -> how it was calculated -> the data rows used -> the original local file -> the
+// publisher's reference. Everything is served by the local app from the build and the raw archive (read-only).
+const FRIENDLY = { period_month: "Month", fiscal_year: "Fiscal year", flight_date: "Flight date", year: "Year", month: "Month no.",
+  locid: "Airport (FAA id)", carrier: "Carrier", unique_carrier_name: "Carrier name", reporting_airline: "Airline", origin: "From",
+  dest: "To", service_type: "Service type", aircraft_config_desc: "Aircraft configuration", class_desc: "Service class",
+  passengers: "Passengers", seats: "Seats", departures_performed: "Departures flown", distance: "Distance (miles)",
+  dep_del15: "Departed 15+ min late", arr_del15: "Arrived 15+ min late", cancelled: "Cancelled", taxi_out: "Taxi-out (min)",
+  total_operations: "Tower operations", total_enplanements: "Enplanements", scenario: "Scenario", record_type: "Record type",
+  freight: "Freight (lbs)", nas_delay: "NAS delay (min)", weather_delay: "Weather delay (min)", flights: "Flights",
+  total_amount: "Grant amount ($)", grant_number: "Grant number", project_summary: "Project", award_date: "Award date",
+  _period: "Source file period", _vintage_id: "Source file version", t: "Period" };
+const nice = (c) => FRIENDLY[c] || (c.startsWith("counted_in_") ? `Counted in "${c.slice(11).replace(/_/g, " ")}"` : c.replace(/_/g, " "));
+const CLASS_PLAIN = { observed: "Measured: read from a published dataset", calculated: "Calculated by the engine from measured data",
+  forecast: "FAA forecast (projection, not an observation)", estimated: "Estimate", exploratory: "Exploratory query (not a catalog metric)" };
+const fmtNum = (v) => (typeof v === "number" ? (Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 0 })
+  : v.toLocaleString(undefined, { maximumFractionDigits: 4 })) : v === true ? "yes" : v === false ? "no" : (v ?? ""));
+const fmtBytes = (b) => (b == null ? "" : b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1e3))} KB`);
+const RAW_COL = /year|month|period|date|_id|code|number|locid|scenario|^t$|ayear|fips|seq/i;   // identifiers: no separators
+function dataTable(cols, rows) {
+  const raw = cols.map((c) => RAW_COL.test(String(c)));
+  return h("div", { class: "tscroll" }, h("table", { class: "ev data" },
+    h("thead", {}, h("tr", {}, cols.map((c) => h("th", {}, nice(String(c)))))),
+    h("tbody", {}, rows.map((r) => h("tr", {}, r.map((v, i) => h("td", { class: typeof v === "number" ? "v" : "" },
+      raw[i] && typeof v === "number" ? String(v) : fmtNum(v))))))));
+}
+const section = (title, ...kids) => h("section", { class: "evsec" }, h("div", { class: "kicker" }, title), ...kids);
+
 async function showFinding(fid) {
   if (fid.startsWith("W")) return showExternal(fid);
   selectTab("evidence");
@@ -415,49 +443,153 @@ async function showFinding(fid) {
   emptyPane(`Loading ${fid}…`);
   let f;
   try { f = await api(`/api/conversations/${state.conv}/findings/${fid}`); } catch (err) { return emptyPane(`${fid}: ${err.message}`); }
+  state.inspecting = f;
   const pane = $("#pane");
+  const airport = f.subject?.airport_code || (Array.isArray(f.subject?.entity_set) ? f.subject.entity_set.join(", ") : "");
   pane.replaceChildren(
-    h("div", { class: "f-id" }, `${f.id} · internal dataset finding`),
+    h("div", { class: "f-id" }, `${f.id} · finding`),
     h("div", { class: "f-value" }, f.formatted),
     h("p", { class: "f-label" }, f.label),
-    h("dl", { class: "kv" },
-      h("dt", {}, "Class"), h("dd", {}, h("span", { class: `cls ${f.epistemic_class}` }, f.epistemic_class)),
-      h("dt", {}, "Metric"), h("dd", { class: "mono" }, `${f.metric_id} · v${f.formula_version}`),
-      h("dt", {}, "Definition"), h("dd", {}, f.definition),
+    section("1 · The result", h("dl", { class: "kv" },
+      airport ? [h("dt", {}, "Airport"), h("dd", {}, airport)] : null,
       h("dt", {}, "Period"), h("dd", {}, f.window?.label || "—"),
-      h("dt", {}, "Subject"), h("dd", { class: "mono" }, Object.entries(f.subject || {}).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join("+") : v}`).join("  ")),
-      f.coverage ? [h("dt", {}, "Coverage"), h("dd", {}, `${Math.round((f.coverage.ratio ?? 0) * 100)}% of departures in ${f.coverage.window ?? "window"}`)] : null,
-      h("dt", {}, "Catalog"), h("dd", { class: "mono" }, f.catalog_version || "—"),
-      h("dt", {}, "Status"), h("dd", {}, f.status === "stale"
-        ? h("span", { class: "cls hypothesis", title: f.status_reason }, `stale: ${f.status_reason}`)
-        : h("span", { class: "cls observed" }, "current")),
+      h("dt", {}, "Kind of value"), h("dd", {}, h("span", { class: `cls ${f.epistemic_class}` }, CLASS_PLAIN[f.epistemic_class] || f.epistemic_class)),
+      h("dt", {}, "Definition"), h("dd", {}, f.definition),
+      f.coverage ? [h("dt", {}, "Coverage"), h("dd", {}, `${Math.round((f.coverage.ratio ?? 0) * 100)}% of departures in ${f.coverage.window ?? "the window"}`)] : null,
+      f.status === "stale" ? [h("dt", {}, "Status"), h("dd", {}, h("span", { class: "cls hypothesis" }, `stale: ${f.status_reason}`))] : null),
+      f.caveats?.length ? h("div", {}, ...f.caveats.map((c) => h("p", { class: "caveat" }, c))) : null),
+    h("div", { id: "evCalc" }, section("2 · How it was calculated", h("p", { class: "muted" }, "Loading…"))),
+    h("div", { id: "evData" }),
+    h("div", { id: "evFiles" }, filesSection(f)),
+    publisherSection(f),
+    h("details", { class: "fold tech" }, h("summary", {}, "Technical details"), h("dl", { class: "kv" },
+      h("dt", {}, "Metric"), h("dd", { class: "mono" }, `${f.metric_id} · v${f.formula_version}`),
+      f.execution ? [h("dt", {}, "Produced by"), h("dd", { class: "mono" }, `${f.execution.tool} · ${f.execution.op} · build ${f.execution.build?.git_rev || "?"}`)] : null,
       f.assumptions?.length ? [h("dt", {}, "Assumptions"), h("dd", { class: "mono" }, f.assumptions.join(", "))] : null,
-      f.execution ? [h("dt", {}, "Produced by"), h("dd", { class: "mono" },
-        `${f.execution.tool} · ${f.execution.op}` + (f.execution.screening ? ` · ${f.execution.screening.scenario} · cfg ${f.execution.screening.config_hash}` : "")
-        + ` · build ${f.execution.build?.git_rev || "?"}/${(f.execution.build?.raw_fingerprint || "").slice(0, 8)}`)] : null,
       f.cited_in_turns?.length ? [h("dt", {}, "Cited in"), h("dd", {}, f.cited_in_turns.map((t) => `Q${String(t).padStart(2, "0")}`).join(", "))] : null),
+      f.spec ? h("pre", { class: "spec" }, JSON.stringify(f.spec, null, 2)) : null),
   );
-  if (f.input_findings?.length) {
-    pane.append(h("div", { class: "kicker" }, "Derived from"), h("ul", { class: "plain" },
-      f.input_findings.map((i) => h("li", {}, h("button", { class: "chip", "data-fid": i.id }, i.id), " ", i.label, " = ", i.formatted))));
+  loadDataUsed(f, 0);
+}
+
+async function loadDataUsed(f, page) {
+  let d;
+  try { d = await api(`/api/conversations/${state.conv}/findings/${f.id}/data?page=${page}`); }
+  catch (err) { d = { level: "source", summary: `The underlying rows could not be loaded (${err.message}).` }; }
+  if (state.inspecting?.id !== f.id) return;
+  const calc = $("#evCalc"), data = $("#evData");
+  const LEVEL = { records: "Exact records and totals", aggregates: "Underlying table rows (custom calculation)",
+    inputs: "Derived from other findings", source: "Source files and periods only" };
+  // ---- 2. calculation
+  const kids = [h("p", { class: "lvl" }, h("span", { class: `tag lv-${d.level}` }, LEVEL[d.level] || d.level), " ", d.summary || "")];
+  if (d.calculation) {
+    const c = d.calculation, names = c.measures.map((m) => m.name);
+    kids.push(h("p", {}, "Formula: ", h("code", {}, c.expression)));
+    kids.push(h("ul", { class: "plain" }, c.measures.map((m) => h("li", {}, h("strong", {}, m.name.replace(/_/g, " ")), ": ",
+      h("code", {}, m.sql.replace(/\s+FILTER\s*\(WHERE.*$/i, "")),
+      m.counts_only ? h("span", { class: "muted" }, ` (only rows where ${m.counts_only})`) : null))));
+    kids.push(dataTable(["period", ...names], [...c.by_period.map((r) => [r.period, ...names.map((n) => r[n])]),
+      ["Total", ...names.map((n) => c.totals[n])]]));
+    kids.push(h("p", {}, "Recomputed from these totals: ", h("strong", {}, fmtNum(c.recomputed)), " ",
+      c.matches_finding ? h("span", { class: "ok" }, "✓ matches the finding") : h("span", { class: "warn" }, "does not match the stored value")));
   }
-  if (f.caveats?.length) pane.append(h("div", { class: "kicker" }, "Caveats"), ...f.caveats.map((c) => h("p", { class: "caveat" }, c)));
-  pane.append(h("div", { class: "kicker" }, "Sources (from the build manifest)"));
+  if (d.inputs) kids.push(h("p", {}, d.formula || ""), h("ul", { class: "plain" }, d.inputs.map((i) =>
+    h("li", {}, h("button", { class: "chip", "data-fid": i.id }, i.id), " ", i.label))));
+  if (d.query) kids.push(h("pre", { class: "spec" }, d.query));
+  calc.replaceChildren(section("2 · How it was calculated", ...kids));
+  // ---- 3. data used
+  if (!d.records) { data.replaceChildren(); return; }
+  const r = d.records, pages = Math.ceil(r.total / r.page_size);
+  data.replaceChildren(section("3 · Data used",
+    h("p", {}, `${r.total.toLocaleString()} records${d.filters?.length ? ` (${d.filters.join(", ")})` : ""} · window ${d.window}.`),
+    Object.keys(r.counted_flags || {}).length ? h("p", { class: "muted" }, "\"Counted in\" columns show whether each row passes that measure's filter.") : null,
+    dataTable(r.columns, r.rows),
+    h("div", { class: "pager" },
+      h("button", { disabled: r.page === 0 ? "" : null, onclick: () => loadDataUsed(f, r.page - 1) }, "← Previous"),
+      h("span", {}, ` rows ${r.page * r.page_size + 1}–${Math.min(r.total, (r.page + 1) * r.page_size)} of ${r.total.toLocaleString()} `),
+      h("button", { disabled: r.page + 1 >= pages ? "" : null, onclick: () => loadDataUsed(f, r.page + 1) }, "Next →")),
+    h("p", { class: "note" }, r.note)));
+}
+
+function mergedSources(f) {           // one entry per dataset, even when a finding cites several periods of it
+  const by = new Map();
   for (const s of f.sources_detail || []) {
-    const vs = s.vintages || [];
-    pane.append(h("div", { class: "src" },
-      h("div", { class: "t" }, s.title || s.id),
-      h("div", { class: "p" }, [s.publisher, s.license, s.cadence].filter(Boolean).join(" · ")),
-      s.homepage ? h("a", { href: s.homepage, target: "_blank", rel: "noopener noreferrer" }, "Dataset page ↗") : null,
-      h("div", { class: "p", style: "margin-top:6px" }, `Periods used: ${(s.periods || []).length ? `${s.periods[0]} … ${s.periods[s.periods.length - 1]} (${s.periods.length})` : "n/a"}`),
-      vs.length ? h("table", {}, h("tbody", {}, vs.slice(0, 14).map((v) => h("tr", {},
-        h("td", {}, v.period), h("td", { title: v.sha256 }, (v.sha256 || "").slice(0, 10)), h("td", {}, (v.stored_at || "").slice(0, 10)),
-        h("td", {}, (v.links || []).length ? v.links.map((l) => h("a", { href: l.url, target: "_blank", rel: "noopener noreferrer",
-          title: l.note || l.url, style: "margin-right:6px" }, `${l.label} ↗`)) : "local file"))))) : null,
-      s.access === "form" ? h("p", { class: "note" }, `Access: ${s.access_note}.`) : null,
-      vs.length > 14 ? h("div", { class: "p" }, `+ ${vs.length - 14} more vintages`) : null));
+    const m = by.get(s.id) || { ...s, vintages: [] };
+    for (const v of s.vintages || []) if (!m.vintages.some((x) => x.vintage_id === v.vintage_id && x.period === v.period)) m.vintages.push(v);
+    by.set(s.id, m);
   }
-  if (f.spec) pane.append(h("div", { class: "kicker" }, "Reproducing analysis spec"), h("pre", { class: "spec" }, JSON.stringify(f.spec, null, 2)));
+  return [...by.values()];
+}
+
+function filesSection(f) {
+  const srcs = mergedSources(f).filter((s) => (s.vintages || []).length);
+  if (!srcs.length) return section("4 · Original local files", h("p", { class: "muted" },
+    "No downloaded file is recorded for this result (derived or curated value). Open the input findings above to reach their files."));
+  return section("4 · Original local files",
+    h("p", { class: "muted" }, "The files exactly as downloaded, stored unchanged in the local archive."),
+    ...srcs.map((s) => h("div", { class: "src" },
+      h("div", { class: "t" }, s.title || s.id), h("div", { class: "p" }, [s.publisher, s.license].filter(Boolean).join(" · ")),
+      h("table", {}, h("tbody", {}, s.vintages.slice(0, 24).map((v) => h("tr", {},
+        h("td", {}, v.period), h("td", {}, `downloaded ${(v.stored_at || "").slice(0, 10)}`),
+        h("td", {}, v.validation === "pass" ? "validated" : v.validation || ""),
+        h("td", {}, h("button", { class: "linkbtn", onclick: () => openVintage(s.id, v.period, v.vintage_id, f) }, "Open file")))))),
+      s.vintages.length > 24 ? h("div", { class: "p" }, `+ ${s.vintages.length - 24} more versions`) : null)));
+}
+
+function publisherSection(f) {
+  const items = [];
+  for (const s of mergedSources(f)) {
+    if (s.homepage) items.push(h("li", {}, h("a", { href: s.homepage, target: "_blank", rel: "noopener noreferrer" }, `Official dataset page: ${s.title || s.id} ↗`)));
+    const v = (s.vintages || []).find((x) => (x.links || []).length);
+    for (const l of v?.links || []) items.push(h("li", {}, h("a", { href: l.url, target: "_blank", rel: "noopener noreferrer", title: l.url },
+      `${l.kind === "form" ? "Download form" : "Direct raw-file download"} (${s.title || s.id}) ↗`), l.note ? h("div", { class: "note" }, l.note) : null));
+    if (!s.homepage && !(v?.links || []).length) items.push(h("li", { class: "muted" }, `${s.title || s.id}: no public publisher link (local curated or reference table).`));
+  }
+  return section("5 · Official publisher reference", h("p", { class: "muted" }, "External, secondary: the publisher's own pages. The evidence above is local."),
+    items.length ? h("ul", { class: "plain" }, ...items) : h("p", { class: "muted" }, "None recorded."));
+}
+
+async function openVintage(sourceId, period, vintageId, f, opts = {}) {
+  const box = $("#evFiles");
+  let v;
+  try { v = await api(`/api/evidence/vintage/${sourceId}/${encodeURIComponent(period)}/${vintageId}`); }
+  catch (err) { return box.replaceChildren(section("4 · Original local file", h("p", { class: "warn" }, `Not available locally: ${err.message}`))); }
+  const file = v.files.find((x) => x.name === opts.name) || v.files[0];
+  const back = h("button", { class: "linkbtn", onclick: () => box.replaceChildren(filesSection(f)) }, "← Back to the list of files");
+  const base = `/api/evidence/file/${sourceId}/${encodeURIComponent(period)}/${vintageId}/${encodeURIComponent(file.name)}`;
+  const code = f.subject?.airport_code || "";
+  const find = opts.find === undefined ? code : opts.find;
+  const q = new URLSearchParams({ page: String(opts.page || 0), ...(opts.member ? { member: opts.member } : {}),
+    ...(opts.sheet ? { sheet: opts.sheet } : {}), ...(find ? { find } : {}) });
+  box.replaceChildren(section("4 · Original local file", back,
+    h("dl", { class: "kv" },
+      h("dt", {}, "Dataset"), h("dd", {}, v.dataset || sourceId), h("dt", {}, "Publisher"), h("dd", {}, v.publisher || "—"),
+      h("dt", {}, "File"), h("dd", {}, `${file.name} (${fmtBytes(file.bytes)})`), h("dt", {}, "Period covered"), h("dd", {}, period),
+      h("dt", {}, "Downloaded"), h("dd", {}, (v.downloaded_at || "").replace("T", " ").replace("Z", " UTC")),
+      h("dt", {}, "Version"), h("dd", { class: "mono" }, vintageId),
+      h("dt", {}, "SHA-256"), h("dd", { class: "mono", title: file.sha256 }, `${(file.sha256 || "").slice(0, 16)}…`),
+      v.rows_loaded ? [h("dt", {}, "Rows loaded"), h("dd", {}, Object.entries(v.rows_loaded).map(([t, n]) => `${t}: ${Number(n).toLocaleString()}`).join(" · "))] : null,
+      h("dt", {}, "Validation"), h("dd", {}, v.validation || "—")),
+    h("p", {}, h("a", { href: `${base}/download`, download: file.name }, `Download ${file.name}`), " · stored unchanged in the local archive"),
+    h("div", { id: "evPreview" }, h("p", { class: "muted" }, "Loading preview…"))));
+  let pv;
+  try { pv = await api(`${base}/preview?${q}`); } catch (err) { return $("#evPreview").replaceChildren(h("p", { class: "warn" }, `Preview not available: ${err.message}`)); }
+  const again = (o) => openVintage(sourceId, period, vintageId, f, { name: file.name, member: pv.member, sheet: pv.sheet, find, ...o });
+  $("#evPreview").replaceChildren(
+    pv.members ? h("p", {}, "Files inside the archive: ", ...pv.members.map((m) => h("button", { class: `linkbtn ${m.name === pv.member ? "on" : ""}`,
+      onclick: () => again({ member: m.name, sheet: undefined, page: 0 }) }, `${m.name} (${fmtBytes(m.bytes)})`))) : null,
+    pv.sheets ? h("p", {}, "Sheets: ", ...pv.sheets.map((sh) => h("button", { class: `linkbtn ${sh === pv.sheet ? "on" : ""}`, onclick: () => again({ sheet: sh, page: 0 }) }, sh))) : null,
+    code ? h("p", {}, find ? [`Showing only rows where a cell equals “${find}”. `, h("button", { class: "linkbtn", onclick: () => again({ find: "", page: 0 }) }, "Show all rows")]
+      : h("button", { class: "linkbtn", onclick: () => again({ find: code, page: 0 }) }, `Show only rows for ${code}`)) : null,
+    pv.note ? h("p", { class: "muted" }, pv.note) : null,
+    (pv.titles || []).length ? h("p", { class: "muted" }, pv.titles.join(" · ")) : null,
+    pv.text ? h("pre", { class: "spec" }, pv.text) : null,
+    ...(pv.columns ? [dataTable(pv.columns, pv.rows || []),
+      h("div", { class: "pager" },
+        h("button", { disabled: (pv.page || 0) === 0 ? "" : null, onclick: () => again({ page: (pv.page || 0) - 1 }) }, "← Previous"),
+        h("span", {}, ` ${pv.rows?.length ? `rows ${pv.first_row}–${pv.first_row + pv.rows.length - 1}` : "no matching rows"} `),
+        h("button", { disabled: pv.more ? null : "", onclick: () => again({ page: (pv.page || 0) + 1 }) }, "Next →")),
+      h("p", { class: "note" }, "A bounded preview of the original file (first columns, 50 rows per page). Download it for the full file.")] : []));
 }
 
 async function showMemory() {
