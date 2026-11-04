@@ -49,6 +49,8 @@ NOT_IN_DATA = [   # topics the internal datasets do not measure -> say so instea
      "weather-attributed delay minutes from the On-Time data"),
     (r"security (wait|line)|\btsa wait|queue time", "security wait times", "passenger volumes and peak-hour schedules"),
 ]
+THRESHOLD = re.compile(r"\b(\d{3,5})\s*-?\s*(?:mi\b|miles?\b)", re.I)
+BOUND_LH = re.compile(r"\b(A\d+): [^;\n]*\[binds long_haul_share\.min_miles = (\d+)\]")
 CORRECTION = re.compile(r"\b(actually|i meant|instead|not .* but|rather|correction|i mean)\b", re.I)
 REFERENCE = re.compile(r"\b(that|this|those|these|same|it|its|them|their|earlier|previous|before|first one|second one|"
                        r"the airport|the other)\b", re.I)
@@ -135,12 +137,27 @@ class OfflineBackend:
             return _text(f"[{LABEL}] The internal datasets do not contain {whats}, so I cannot answer that part from "
                          f"evidence. What the data does cover nearby: {alts}. With the LLM backend, web research can add "
                          "cited external context.")
+        # 0b) an analyst-set long-haul threshold is a *bound* assumption: code then marks findings computed with any
+        #     other threshold stale (assumptions.py), so a later answer cannot silently cite them
+        bound = BOUND_LH.findall(memory)
+        thr = THRESHOLD.search(q)
+        if thr and intent == "long_haul" and "update_memory" not in names and \
+                (not bound or int(bound[-1][1]) != int(thr.group(1))):
+            upd = {"action": "set_assumption", "text": "Long-haul threshold set by the analyst (segment distance)",
+                   "binds": {"metric": "long_haul_share", "param": "min_miles", "value": int(thr.group(1))}}
+            if bound:
+                upd["replaces"] = bound[-1][0]
+            calls = [_tu("update_memory", upd)]
+            if terms and "resolve_entities" not in names:
+                calls.insert(0, _tu("resolve_entities", {"terms": terms}))
+            return _calls(calls)
         # 1) resolve named places (and record a correction as an assumption)
         if terms and "resolve_entities" not in names:
             calls = [_tu("resolve_entities", {"terms": terms})]
-            if CORRECTION.search(q):
+            if CORRECTION.search(q) and not thr:
+                from .memory import mask_numbers
                 calls.append(_tu("update_memory", {"action": "set_assumption",
-                                                    "text": "User correction: " + re.sub(r"\d", "#", q)[:200]}))
+                                                    "text": "User correction: " + mask_numbers(q)[:200]}))
             return _calls(calls)
         airports, group, region_label = [], None, ""
         for u, res in done:
@@ -194,7 +211,8 @@ class OfflineBackend:
 
         analyses = [(u, r) for u, r in done if u["name"] == "run_analysis"]
         if not analyses:
-            specs = self._specs(intent, metrics, airports, group)
+            lh = int(thr.group(1)) if thr else (int(bound[-1][1]) if bound else None)
+            specs = self._specs(intent, metrics, airports, group, lh)
             if not specs:
                 return _text(f"[{LABEL}] I can run screening, congestion, long-haul, unmet-demand indicators, trends and "
                              "named metrics offline. This question needs the LLM backend (set AIRPORT_MODEL=gemini).")
@@ -222,7 +240,7 @@ class OfflineBackend:
         return out[:6]
 
     @staticmethod
-    def _specs(intent, metrics, airports, group) -> list[dict]:
+    def _specs(intent, metrics, airports, group, long_haul_miles: int | None = None) -> list[dict]:
         ent = {"airports": airports} if airports else {"group": group}
         gb = ["airport"] if len(airports) > 1 or group else []
         if intent == "screen":
@@ -231,6 +249,11 @@ class OfflineBackend:
             return [{"op": "aggregate", "entities": ent, "group_by": gb,
                      "metrics": ["dep_delay15_rate", "avg_taxi_out_min", "peak_hour_ops_p95", "tower_operations",
                                  "nas_delay_min_per_arrival"]}]
+        if intent == "long_haul" and long_haul_miles:        # analyst fixed the definition: no alternatives
+            return [{"op": "aggregate", "entities": ent, "group_by": gb, "metrics": [
+                {"id": "long_haul_share", "params": {"weight": "departures", "min_miles": long_haul_miles}},
+                {"id": "long_haul_share", "params": {"weight": "passengers", "min_miles": long_haul_miles}},
+                "intl_seat_share", "avg_stage_length"]}]
         if intent == "long_haul":
             return [{"op": "aggregate", "entities": ent, "group_by": gb, "metrics": [
                 {"id": "long_haul_share", "params": {"weight": "departures"}},

@@ -114,7 +114,7 @@ class ConversationStore:
     @_locked
     def save_findings(self, conv_id: str, store: EvidenceStore) -> None:
         for f in store.all():
-            self.db.execute("INSERT OR IGNORE INTO findings VALUES (?,?,?,?)",
+            self.db.execute("INSERT OR REPLACE INTO findings VALUES (?,?,?,?)",    # status (stale) can change
                             (conv_id, f.id, int(f.id[1:]), json.dumps(f.to_dict(), default=str)))
         self.db.commit()
 
@@ -258,16 +258,26 @@ class ConversationState:
             return {"op": "assumption_retracted", "id": a["id"], "turn": turn}, None
         if not text or len(text) > 400:
             return None, "text required (≤400 chars)"
+        if action in ("set_assumption", "set_preference") and not summary_is_safe(text):
+            return None, ("memory text must not carry numbers (they would become an unverified source of values); "
+                          "put a parameter value in 'binds' (validated) and describe it in words")
         if action == "set_assumption":
-            new = {"id": f"A{len(self.assumptions) + 1}", "text": text, "status": "active", "turn": turn, "superseded_by": None}
+            from .assumptions import validate_binds
+            binds, err = validate_binds(upd.get("binds"))
+            if err:
+                return None, f"invalid binds: {err}"
+            new = {"id": f"A{len(self.assumptions) + 1}", "text": text, "status": "active", "turn": turn,
+                   "superseded_by": None, "binds": binds}
             rep = upd.get("replaces")
             if rep:
                 old = next((x for x in self.assumptions if x["id"] == rep), None)
                 if not old:
                     return None, f"unknown assumption id {rep}"
+                if old["status"] != "active":
+                    return None, f"{rep} is already {old['status']}"
                 old["status"], old["superseded_by"] = "superseded", new["id"]
             self.assumptions.append(new)
-            return {"op": "assumption_set", **new}, None
+            return {"op": "assumption_set", **new, "replaces": rep}, None
         if action == "note_decision":
             sup = [s for s in upd.get("support") or [] if FID.fullmatch(s)]
             if not summary_is_safe(FID.sub("", text)):
@@ -276,10 +286,13 @@ class ConversationState:
             self.decisions.append(d)
             return {"op": "decision_noted", **d}, None
         key = upd.get("key") or ""
-        if not key:
-            return None, "set_preference needs key"
+        if not key or not summary_is_safe(key):
+            return None, "set_preference needs a number-free key"
         self.preferences[key] = text
         return {"op": "preference_set", "key": key, "value": text, "turn": turn}, None
+
+    def active_assumptions(self) -> list[dict]:
+        return [a for a in self.assumptions if a["status"] == "active"]
 
     def focus(self, n: int = 6) -> list[tuple[str, dict]]:
         return sorted(self.entities.items(), key=lambda kv: (-kv[1]["last"], -kv[1]["n"]))[:n]
@@ -298,11 +311,27 @@ def summary_is_safe(text: str) -> bool:
     return not NUM_OUTSIDE_REFS.search(t)
 
 
+def mask_numbers(text: str) -> str:
+    """Replace every quantity (digits, number words, Unicode numerals) with '#'. Used wherever user text is copied
+    into memory, so memory can never become a source of numbers (Grok product review #5/#6)."""
+    from airport_analytics.render import ALLOWED_WORD_USES, NUMBER_WORDS
+    keep: list[str] = []
+
+    def hold(m):                     # protect allowed phrases ("one of") with a digit-free placeholder
+        keep.append(m.group(0))
+        return "\x00" + "q" * len(keep) + "\x00"
+    t = ALLOWED_WORD_USES.sub(hold, text or "")
+    t = re.sub(r"\d[\d,.%]*", "#", t)
+    t = NUMBER_WORDS.sub("#", t)
+    t = "".join("#" if (not ch.isascii() and ch.isnumeric()) else ch for ch in t)
+    return re.sub("\x00(q+)\x00", lambda m: keep[len(m.group(1)) - 1], t)
+
+
 def extractive_summary(turn_records: list[dict]) -> str:
-    """Deterministic fallback: one line per turn — the user's question (digits stripped) and the answer headline refs."""
+    """Deterministic fallback: one line per turn — the user's question (quantities masked) and the answer refs."""
     lines = []
     for r in turn_records:
-        q = re.sub(r"\d[\d,.%]*", "#", r.get("question", ""))[:160]
+        q = mask_numbers(r.get("question", ""))[:160]
         cited = ", ".join(r.get("cited", [])[:8])
         lines.append(f"- Turn {r['turn']}: user asked \"{q}\"" + (f"; answered with {cited}" if cited else "; no grounded answer"))
     return "\n".join(lines)
@@ -324,7 +353,8 @@ def summarize(turn_records: list[dict], summarizer: Callable[[str], str] | None)
                 return txt.strip(), "model"
         except Exception:
             pass
-    return extractive_summary(turn_records), "extractive"
+    txt = extractive_summary(turn_records)
+    return (txt if summary_is_safe(txt) else "- earlier turns are available through recall"), "extractive"
 
 
 # ------------------------------------------------------------------ retrieval over older turns (lexical, no vector DB)
@@ -399,7 +429,7 @@ class ContextBuilder:
         qtok = set(_toks(query))
         scored = []
         for f in ev.all():
-            if f.epistemic_class == "exploratory":
+            if f.epistemic_class == "exploratory" or f.status != "current":
                 continue
             s = (10 if f.id in qtok else 0) + (4 if boost and f.id in boost else 0) + (3 if f.id in cited else 0) \
                 + (2 if f.subject.get("airport_code") in focus_codes else 0) + len(qtok & set(_toks(f.label))) \
@@ -443,7 +473,13 @@ class ContextBuilder:
         act = [a for a in state.assumptions if a["status"] == "active"]
         sup = [a for a in state.assumptions if a["status"] != "active"]
         if act:
-            st_lines.append("Active assumptions: " + "; ".join(f"{a['id']}: {a['text']}" for a in act))
+            from .assumptions import binds_label
+            st_lines.append("Active assumptions: " + "; ".join(
+                f"{a['id']}: {a['text']}" + (f" [binds {binds_label(a.get('binds'))}]" if a.get("binds") else "")
+                for a in act))
+        stale = [f.id for f in ev.all() if f.status == "stale"]
+        if stale:
+            st_lines.append("Stale findings (assumptions changed; do NOT cite, re-run if needed): " + ", ".join(stale[-40:]))
         if sup:
             st_lines.append("No longer valid (do not use): " + "; ".join(f"{a['id']} ({a['status']}): {a['text']}" for a in sup[-6:]))
         if state.decisions:

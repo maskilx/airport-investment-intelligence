@@ -22,6 +22,8 @@ from typing import Any, Callable
 from airport_analytics.render import ALLOW, ALLOWED_WORD_USES, NUMBER_WORDS, PH, _numeric_chars, fmt_value
 from airport_analytics.tools import Session, tool_schemas
 
+from .assumptions import on_change as on_assumption_change
+from .assumptions import tag_new as tag_new_findings
 from .charts import build_charts
 from .memory import Budget, ContextBuilder, ConversationState, ConversationStore, FID, retrieve
 from .models import ModelBackend, ModelError, ModelResponse, Usage
@@ -53,7 +55,9 @@ Conversation memory:
 - References like "that airport", "the second one", "same period" refer to the entities in focus (most recent first).
   State your interpretation as an assumption; if two readings are equally plausible, ask.
 - When the user corrects you or changes an assumption, call update_memory (set_assumption with replaces=A#, or
-  retract_assumption) and re-run the affected analyses. Never reuse findings that depended on a superseded assumption.
+  retract_assumption). If the assumption is a metric parameter or a screen option, pass binds (e.g. {metric:
+  "long_haul_share", param: "min_miles", value: ...}); assumption text itself must contain no numbers. Code then marks
+  dependent findings STALE; stale findings cannot be cited — re-run the affected analyses.
 - Use recall to search older turns and findings when the memory block does not contain what the user refers to.
 
 External web research (only if web_search / fetch_page are available):
@@ -70,12 +74,16 @@ MEMORY_TOOLS = [
      "input_schema": {"type": "object", "properties": {"query": {"type": "string"}, "k": {"type": "integer"}},
                       "required": ["query"]}},
     {"name": "update_memory",
-     "description": "Record conversation memory: set_assumption {text, replaces?: A#} | retract_assumption {id: A#} | "
-                    "note_decision {text (no numbers), support: [F#]} | set_preference {key, text}. Use when the user states "
-                    "or corrects an assumption, makes a decision, or expresses a lasting preference.",
+     "description": "Record conversation memory: set_assumption {text (no numbers), replaces?: A#, binds?: {metric, param, "
+                    "value} | {screen_option: scenario|min_enplanements, value}} | retract_assumption {id: A#} | "
+                    "note_decision {text (no numbers), support: [F#]} | set_preference {key, text}. Bound assumptions are "
+                    "enforced: findings computed with a different parameter value become stale and cannot be cited.",
      "input_schema": {"type": "object", "properties": {
          "action": {"enum": ["set_assumption", "retract_assumption", "note_decision", "set_preference"]},
          "text": {"type": "string"}, "id": {"type": "string"}, "replaces": {"type": "string"},
+         "binds": {"type": "object", "properties": {"metric": {"type": "string"}, "param": {"type": "string"},
+                                                    "screen_option": {"type": "string"},
+                                                    "value": {"type": ["string", "number"]}}},
          "support": {"type": "array", "items": {"type": "string"}}, "key": {"type": "string"}}, "required": ["action"]}},
 ]
 
@@ -328,13 +336,30 @@ class Agent:
             if err:
                 return {"error": "invalid_memory_update", "message": err}
             changes.append(ch)
-            return {"ok": True, "change": ch}
+            out = {"ok": True, "change": ch}
+            if ch["op"] in ("assumption_set", "assumption_retracted"):
+                old_id = ch.get("replaces") if ch["op"] == "assumption_set" else ch["id"]
+                old = next((a for a in self.state.assumptions if a["id"] == old_id), None) if old_id else None
+                new = next((a for a in self.state.assumptions if a["id"] == ch["id"]), None) \
+                    if ch["op"] == "assumption_set" else None
+                stale = on_assumption_change(self.evidence, old, new)
+                if stale:
+                    out["stale_findings"] = stale
+                    out["note"] = "these findings no longer hold under the current assumptions and cannot be cited; re-run"
+                    changes.append({"op": "findings_stale", "ids": [x["id"] for x in stale], "turn": turn})
+            return out
         if name in self.extra_tools:
             try:
                 return self.extra_tools[name][1](args)
             except Exception as e:                                    # tool errors are information for the model
                 return {"error": "tool_failed", "message": f"{type(e).__name__}: {e}"}
+        n0 = len(self.evidence)
         res = self.session.call(name, args)
+        born_stale = tag_new_findings(self.evidence.added_since(n0), self.state.active_assumptions(), self.evidence)
+        if born_stale and isinstance(res, dict):
+            res["stale_findings"] = born_stale
+            res["note"] = ("some findings contradict an active assumption and are stale (not citable); "
+                           "re-run with the assumed parameters")
         try:
             changes += self.state.observe(name, args, res, turn)
         except Exception:                                             # memory bookkeeping never breaks a turn
@@ -345,7 +370,8 @@ class Agent:
         f = self.evidence.get(fid)
         return {"id": f.id, "label": f.label, "formatted": fmt_value(f), "class": f.epistemic_class, "metric_id": f.metric_id,
                 "period": f.window.get("label", ""), "sources": [s.label() for s in f.sources],
-                "coverage": f.coverage, "inputs": f.inputs}
+                "coverage": f.coverage, "inputs": f.inputs, "status": f.status, "status_reason": f.status_reason,
+                "assumptions": f.assumptions}
 
     def _recall(self, args: dict) -> dict:
         q = str(args.get("query") or "")

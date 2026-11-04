@@ -363,6 +363,13 @@ async function showFinding(fid) {
       h("dt", {}, "Subject"), h("dd", { class: "mono" }, Object.entries(f.subject || {}).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join("+") : v}`).join("  ")),
       f.coverage ? [h("dt", {}, "Coverage"), h("dd", {}, `${Math.round((f.coverage.ratio ?? 0) * 100)}% of departures in ${f.coverage.window ?? "window"}`)] : null,
       h("dt", {}, "Catalog"), h("dd", { class: "mono" }, f.catalog_version || "—"),
+      h("dt", {}, "Status"), h("dd", {}, f.status === "stale"
+        ? h("span", { class: "cls hypothesis", title: f.status_reason }, `stale: ${f.status_reason}`)
+        : h("span", { class: "cls observed" }, "current")),
+      f.assumptions?.length ? [h("dt", {}, "Assumptions"), h("dd", { class: "mono" }, f.assumptions.join(", "))] : null,
+      f.execution ? [h("dt", {}, "Produced by"), h("dd", { class: "mono" },
+        `${f.execution.tool} · ${f.execution.op}` + (f.execution.screening ? ` · ${f.execution.screening.scenario} · cfg ${f.execution.screening.config_hash}` : "")
+        + ` · build ${f.execution.build?.git_rev || "?"}/${(f.execution.build?.raw_fingerprint || "").slice(0, 8)}`)] : null,
       f.cited_in_turns?.length ? [h("dt", {}, "Cited in"), h("dd", {}, f.cited_in_turns.map((t) => `Q${String(t).padStart(2, "0")}`).join(", "))] : null),
   );
   if (f.input_findings?.length) {

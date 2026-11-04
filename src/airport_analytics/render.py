@@ -167,6 +167,11 @@ def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str]
                     subj = store.get(fid).subject.get("airport_code")
                     if subj and codes and subj not in codes:
                         errs.append(f"{where}: {fid} is about {subj} but the sentence names {sorted(codes)}")
+    cited = {fid for t in texts.values() for fid, _ in PH.findall(t or "")}
+    cited |= {fid for c in answer.get("claims", []) or [] if isinstance(c, dict) for fid in c.get("support") or []}
+    cited |= {fid for c in answer.get("charts", []) or [] if isinstance(c, dict) for fid in c.get("findings") or []}
+    for fid in sorted(f for f in cited if f in store and store.get(f).status != "current"):
+        errs.append(f"{fid} is stale and cannot be cited: {store.get(fid).status_reason}. Re-run the analysis.")
     for i, c in enumerate(answer.get("charts", []) or []):
         if not isinstance(c, dict) or not isinstance(c.get("findings"), list) or not c["findings"]:
             errs.append(f"charts[{i}]: a chart needs findings:[F#, ...] (values are taken from the evidence store)")

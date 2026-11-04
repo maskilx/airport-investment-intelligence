@@ -75,3 +75,106 @@ def test_legacy_finding_is_reported_not_replayable(S):
         assert rep["replayable"] is False
     finally:
         f.execution = saved
+
+
+# ---------------------------------------------------------------- stage 2: assumption dependencies and stale findings
+def _tu(i, name, inp):
+    return {"type": "tool_use", "id": f"t{i}", "name": name, "input": inp}
+
+
+LH = lambda miles=None: {"op": "aggregate", "entities": {"airports": ["ANC"]}, "metrics": [
+    {"id": "long_haul_share", "params": {"weight": "departures", **({"min_miles": miles} if miles else {})}}]}
+
+
+def test_bound_assumption_makes_default_threshold_findings_stale_and_uncitable():
+    """Review 2 §6.1: threshold changed from the default to another value; old findings must not support the answer."""
+    from airport_agent.memory import ConversationStore
+    from airport_agent.models import ScriptedBackend
+    from airport_agent.runtime import Agent
+    st = ConversationStore(":memory:")
+    a = Agent(ScriptedBackend([[_tu(1, "run_analysis", {"spec": LH()})], [{"type": "text", "text": "Done."}]]),
+              store=st, conv_id="c")
+    a.ask("long haul share at ANC")
+    old = a.evidence.all()[0]
+    assert old.status == "current" and "min_miles=3000" in old.metric_id
+    b = Agent(ScriptedBackend([
+        [_tu(2, "update_memory", {"action": "set_assumption", "text": "Long-haul threshold chosen by the analyst",
+                                  "binds": {"metric": "long_haul_share", "param": "min_miles", "value": 2400}})],
+        [_tu(3, "compose_answer", {"answer": {"headline": "ANC long haul", "body": f"{{{old.id}}}",
+                                              "claims": [{"kind": "fact", "text": f"{{{old.id}}}", "support": [old.id]}]}})],
+        [_tu(4, "run_analysis", {"spec": LH(2400)})],
+        [{"type": "text", "text": "Re-ran with the analyst threshold."}]]), store=st, conv_id="c")
+    r = b.ask("use 2400 miles instead")
+    assert b.evidence.get(old.id).status == "stale" and "A1" in b.evidence.get(old.id).status_reason
+    comp = next(c for c in r.tool_calls if c["tool"] == "compose_answer")
+    assert comp["error"] == "grounding_validation_failed"          # the stale finding could not be cited
+    new = [f for f in b.evidence.all() if "min_miles=2400" in f.metric_id]
+    assert new and new[0].status == "current" and new[0].assumptions == ["A1"]
+    # status survives a restart (persisted with INSERT OR REPLACE) and the memory block lists it as stale
+    c = Agent(ScriptedBackend([]), store=st, conv_id="c")
+    assert c.evidence.get(old.id).status == "stale"
+    mem, _, _ = c.ctx.build("c", "again", c.state, c.evidence, lambda f: str(f.value))
+    assert f"{old.id}:" not in mem.split("Stale findings")[0].split("Findings")[-1] and "Stale findings" in mem
+
+
+def test_finding_contradicting_an_active_binding_is_born_stale():
+    from airport_agent.models import ScriptedBackend
+    from airport_agent.runtime import Agent
+    a = Agent(ScriptedBackend([
+        [_tu(1, "update_memory", {"action": "set_assumption", "text": "Analyst long-haul threshold",
+                                  "binds": {"metric": "long_haul_share", "param": "min_miles", "value": 2400}})],
+        [_tu(2, "run_analysis", {"spec": LH()})], [{"type": "text", "text": "ok"}]]))
+    r = a.ask("long haul at ANC with the analyst threshold")
+    f = a.evidence.all()[0]
+    assert f.status == "stale" and "A1" in f.status_reason
+    res = next(c for c in r.tool_calls if c["tool"] == "run_analysis")
+    assert res["error"] is None
+
+
+def test_unbound_assumption_supersede_invalidates_findings_made_under_it():
+    from airport_agent.models import ScriptedBackend
+    from airport_agent.runtime import Agent
+    a = Agent(ScriptedBackend([
+        [_tu(1, "update_memory", {"action": "set_assumption", "text": "LA means LAX only"})],
+        [_tu(2, "run_analysis", {"spec": {"op": "aggregate", "metrics": ["seat_factor"], "entities": {"airports": ["LAX"]}}})],
+        [_tu(3, "derive", {"op": "ratio", "findings": ["F1", "F1"]})],
+        [_tu(4, "update_memory", {"action": "set_assumption", "text": "LA means all LA basin airports", "replaces": "A1"})],
+        [{"type": "text", "text": "ok"}]]))
+    a.ask("seat factor LA")
+    assert a.evidence.get("F1").status == "stale" and "superseded" in a.evidence.get("F1").status_reason
+    assert a.evidence.get("F2").status == "stale"                          # derived from a stale input
+
+
+def test_assumption_text_with_numbers_or_bad_binds_is_rejected():
+    from airport_agent.memory import ConversationState
+    s = ConversationState()
+    assert s.apply_update({"action": "set_assumption", "text": "eighty percent of seats"}, 1)[1]
+    assert s.apply_update({"action": "set_assumption", "text": "threshold 2400 miles"}, 1)[1]
+    assert s.apply_update({"action": "set_assumption", "text": "threshold",
+                           "binds": {"metric": "long_haul_share", "param": "nope", "value": 1}}, 1)[1]
+    assert s.apply_update({"action": "set_assumption", "text": "threshold",
+                           "binds": {"metric": "long_haul_share", "param": "min_miles", "value": 99999}}, 1)[1]
+    assert s.apply_update({"action": "set_preference", "key": "units", "text": "show twelve decimals"}, 1)[1]
+
+
+def test_extractive_summary_masks_number_words():
+    from airport_agent.memory import extractive_summary, summary_is_safe
+    t = extractive_summary([{"turn": 1, "question": "Is eighty percent a high seat factor? ½ of it?", "cited": ["F1"]}])
+    assert summary_is_safe(t) and "eighty" not in t
+
+
+def test_offline_threshold_follow_up_binds_and_reruns():
+    from airport_agent.offline import OfflineBackend
+    from airport_agent.runtime import Agent
+    a = Agent(OfflineBackend())
+    r1 = a.ask("What is the percentage of long haul flights out of Anchorage airport?")
+    assert r1.kind == "answer"
+    r2 = a.ask("Use a 2000 miles long haul threshold instead")
+    assert r2.kind == "answer", r2.markdown
+    assert a.state.active_assumptions()[0]["binds"]["value"] == 2000
+    cited = [a.evidence.get(f) for f in r2.cited_findings]
+    assert all(f.status == "current" for f in cited)
+    lh = [f for f in cited if f.metric_id.startswith("long_haul_share")]
+    assert lh and all("min_miles=2000" in f.metric_id for f in lh)
+    assert all(f.status == "stale" for f in a.evidence.all()
+               if f.metric_id.startswith("long_haul_share") and "min_miles=2000" not in f.metric_id)
