@@ -1,0 +1,46 @@
+# Terminal-expansion opportunity screen (see docs/04 §5). Frozen, versioned model definition.
+# It ranks where the profit pool from additional passengers is largest; it is NOT a valuation.
+model_version = "1.0"
+disclaimer = "Screening rank of expansion opportunity, not a financial valuation: no costs, debt, airline-agreement economics or construction risk are modelled."
+
+[gate]
+min_enplanements = 500000           # latest CY (FAA ACAIS); smaller airports listed as 'below investment scale'
+
+[[component]]
+id = "incremental_enplanements"
+label = "Projected passenger increase (FAA TAF FY2025→FY2035, absolute)"
+metric = { id = "taf_enplanements", window = { fy = 2035 }, transform = { type = "abs_change", compare_window = { fy = 2025 } } }
+scale = "log10"
+lo = 10000          # ≤ 10k additional enplanements -> 0
+hi = 10000000       # ≥ 10M -> 100
+weight = 0.50
+
+[[component]]
+id = "realized_growth"
+label = "Realized passenger growth (T-100, trailing 12 months vs prior 12)"
+metric = { id = "passengers", transform = { type = "pct_change" } }
+scale = "linear"
+lo = -0.05
+hi = 0.10
+weight = 0.30
+
+[[component]]
+id = "market_income"
+label = "Home-CBSA per-capita income (latest BEA year)"
+metric = { id = "cbsa_per_capita_income" }
+scale = "linear"
+lo = 45000
+hi = 110000
+weight = 0.20
+
+[scenarios]
+base = [0.50, 0.30, 0.20]
+equal_weights = [0.3334, 0.3333, 0.3333]
+demand_only = [1.0, 0.0, 0.0]
+momentum_heavy = [0.30, 0.50, 0.20]
+
+[ties]
+points = 3.0                        # score gaps below this are reported as ties
+
+[flags]
+carrier_concentration_share = 0.50  # largest operating carrier seat share

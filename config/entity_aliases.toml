@@ -1,0 +1,27 @@
+# Colloquial names the resolver cannot infer from official records. Data, not code: add entries here.
+# kind = "airport" binds to one code (with a note listing related airports); kind = "group" binds a group filter.
+
+[alias."la"]
+kind = "airport"
+code = "LAX"
+note = "'LA' read as Los Angeles International (LAX). Other LA-basin airports: BUR, LGB, ONT, SNA. 'LA' is also the state code for Louisiana."
+
+[alias."l.a."]
+kind = "airport"
+code = "LAX"
+note = "'L.A.' read as LAX. Other LA-basin airports: BUR, LGB, ONT, SNA."
+
+[alias."nyc"]
+kind = "group"
+group = { csa = "New York-Newark, NY-NJ-CT-PA" }
+note = "NYC read as the New York CSA (JFK, LGA, EWR, ...)."
+
+[alias."bay area"]
+kind = "group"
+group = { csa = "San Jose-San Francisco-Oakland, CA" }
+note = "Bay Area read as the San Jose-San Francisco-Oakland CSA."
+
+[alias."dc"]
+kind = "group"
+group = { csa = "Washington-Baltimore-Arlington, DC-MD-VA-WV-PA" }
+note = "DC read as the Washington-Baltimore CSA (DCA, IAD, BWI)."
