@@ -319,11 +319,17 @@ def test_gemini_schemas_have_no_empty_objects_and_args_round_trip():
                                "How many gates does BOS have and what is the terminal square footage?",
                                "Compare the cost per enplaned passenger at JFK and EWR",
                                "What was the wind speed at DEN on peak delay days?"])
-def test_offline_planner_declines_topics_not_in_the_data(q):
+def test_offline_planner_handles_topics_not_in_the_data_with_labelled_proxies(q):
+    """Not a refusal and not a nearby metric passed off as the answer: proxies labelled as proxies, the gap stated,
+    and the next step (FDE behaviour, config/information_gaps.toml)."""
     from airport_agent.offline import OfflineBackend
     from airport_agent.runtime import Agent
     r = Agent(OfflineBackend()).ask(q)
-    assert r.kind == "clarification" and "do not contain" in r.markdown and not r.tool_calls
+    assert r.kind == "answer", r.markdown
+    s = r.structured
+    assert s["investigation"]["next_step"] and s["investigation"]["unknown"]
+    assert any("not in the internal datasets" in x for x in s["limitations"])
+    assert all(c["text"].startswith("Proxy") for c in s["claims"] if c["kind"] == "fact")
 
 
 def test_plain_text_replies_may_not_carry_quantities():

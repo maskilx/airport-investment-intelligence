@@ -577,3 +577,108 @@ def test_offline_assessment_uses_objective_specific_criteria_or_asks():
     assert "congestion" in a["objective"].lower() and not any("growth" in c["name"].lower() for c in a["criteria"])
     r = Agent(OfflineBackend()).ask("Which is better, LAX or SNA?")
     assert r.kind == "clarification" and "Better for what" in r.markdown
+
+
+# ---------------------------------------------------------------- FDE behaviour: understanding and missing information
+def test_information_gap_cases_are_classified_not_refused():
+    from airport_analytics.information import check
+    assert check("unmet demand at SFO")["case"] == "not_measurable"
+    assert check("average airfare out of AUS")["case"] == "external"
+    assert check("how many gates does BOS have")["case"] == "external"
+    assert check("weather at DEN")["case"] == "proxy"
+    assert check("long haul share")["case"] == "exists"
+    assert check("passenger growth per capita")["case"] == "derivable"
+    assert check("xyzzy")["case"] == "unknown"
+    for need in ("unmet demand", "fares", "gates", "landing fees"):
+        r = check(need)
+        assert r["proxies"] and r["next_step"] and r["cannot_establish"]            # always a useful path forward
+
+
+def test_investigation_block_requires_cited_established_items(S, ev):
+    from airport_analytics.render import validate
+    f = ev["sf_sfo"]
+    base = {"headline": "SFO", "body": f"{{{f}}}"}
+    good = {"objective": "understand demand pressure at SFO", "question_type": "investigation",
+            "investigated": ["load factor"], "established": [f"seat factor {{{f}}}"],
+            "unknown": ["actual unmet demand"], "next_step": "add fares"}
+    assert not validate({**base, "investigation": good}, S.ctx.store)
+    assert validate({**base, "investigation": {**good, "established": ["load factor is high"]}}, S.ctx.store)
+    assert validate({**base, "investigation": {**good, "unknown": [f"maybe {{{f}}}"]}}, S.ctx.store)
+    assert validate({**base, "investigation": {**good, "next_step": "this will definitely work"}}, S.ctx.store)
+
+
+def test_decision_uses_conversation_context_before_asking():
+    from airport_agent.offline import OfflineBackend
+    from airport_agent.runtime import Agent
+    a = Agent(OfflineBackend())
+    a.ask("Which airports in New England are strong candidates for terminal expansion?")
+    r = a.ask("Which one should we prioritize?")                     # options and objective come from the conversation
+    assert r.kind == "answer"
+    assess = next(c for c in r.structured["claims"] if c["kind"] == "assessment")["assessment"]
+    assert "growth" in assess["objective"].lower()
+    assert any("Assumed from context" in x for x in r.structured["assumptions"])
+    b = Agent(OfflineBackend())
+    assert b.ask("Which is better, LAX or SNA?").kind == "clarification"   # no context: one focused question
+
+
+def test_changing_the_objective_changes_the_criteria():
+    from airport_agent.offline import OfflineBackend
+    from airport_agent.runtime import Agent
+    a = Agent(OfflineBackend())
+    g = a.ask("Which is the better investment opportunity, BOS or PWM?")
+    c = a.ask("Which of BOS or PWM is better to prioritize for lower congestion?")
+    crit = lambda r: {x["name"] for x in next(k for k in r.structured["claims"] if k["kind"] == "assessment")["assessment"]["criteria"]}
+    assert crit(g) and crit(c) and not (crit(g) & crit(c))
+
+
+# ---------------------------------------------------------------- assessments: conflicts, unknowns, insufficiency, sensitivity
+def _assess(S, criteria, **kw):
+    from airport_analytics.render import validate
+    c = {"kind": "assessment", "objective": "Lower airside congestion", "criteria": criteria,
+         "conditional_on": ["airside view only"], "would_change": ["terminal data"], **kw}
+    return validate({"headline": "h", "body": "x", "claims": [c]}, S.ctx.store,
+                    question="Which airport should we prioritize, LAX or SNA?")
+
+
+def test_conflicting_criteria_require_tradeoffs(S, ev):
+    t = ev["taxi"]
+    pk = {next(c for c in ("LAX", "SNA") if c in f["label"]): f["id"] for f in
+          S.call("run_analysis", {"spec": {"op": "aggregate", "metrics": ["tower_operations"],
+                                           "entities": {"airports": ["LAX", "SNA"]}, "group_by": ["airport"]}})["findings"]}
+    crit = [{"name": "Taxi-out", "findings": [t["LAX"], t["SNA"]], "favors": "SNA", "direction": "lower_is_better"},
+            {"name": "Scale of operations", "findings": [pk["LAX"], pk["SNA"]], "favors": "LAX", "direction": "higher_is_better"}]
+    assert any("trade-offs" in e for e in _assess(S, crit, judgment="SNA, on balance."))
+    assert not _assess(S, crit, judgment="SNA, on balance.", tradeoffs=["LAX handles far more traffic"])
+
+
+def test_unknown_values_cannot_favour_and_insufficient_evidence_must_abstain(S, ev):
+    from airport_analytics.evidence import Finding, SourceRef
+    st = S.ctx.store
+    fid = st.new_id()
+    st.add(Finding(fid, "dep_delay15_rate", "Departure delay rate — HVN — w", None, "ratio", "pct", "calculated", "d", "1",
+                   {"airport_code": "HVN"}, {"label": "w"}, [SourceRef("bts_ontime", [], [])]))
+    t = ev["taxi"]
+    errs = _assess(S, [{"name": "Delay", "findings": [fid, t["SNA"]], "favors": "HVN"},
+                       {"name": "Taxi", "findings": [t["LAX"], t["SNA"]], "favors": "SNA", "direction": "lower_is_better"}],
+                   judgment="SNA.")
+    assert any("not established" in e for e in errs) and any("insufficient" in e for e in errs)
+    assert not _assess(S, [{"name": "Delay", "findings": [fid, t["SNA"]], "favors": "unclear"}], abstain=True,
+                       abstain_reason="the delay data is missing for one airport")
+
+
+def test_sensitivity_is_computed_and_false_robustness_is_rejected():
+    from airport_agent.offline import OfflineBackend
+    from airport_agent.runtime import Agent
+    from airport_analytics.claims import robustness
+    a = Agent(OfflineBackend())
+    r = a.ask("Which is the better investment opportunity, PVD or BDL?")
+    claim = next(c for c in r.structured["claims"] if c["kind"] == "assessment")["assessment"]
+    assert claim["robust"] is False and "momentum_heavy" in claim["robustness"]          # leader flips with weighting
+    assert claim["abstain"] and "too close" in claim["abstain_reason"]
+    # a model that claims robustness anyway is rejected
+    from airport_analytics.render import validate
+    crit = [{"name": k["name"], "findings": k["findings"], "favors": k["favors"]} for k in claim["criteria"]]
+    bad = {"kind": "assessment", "objective": "growth opportunity", "criteria": crit, "judgment": "BDL is robustly better in every scenario.",
+           "conditional_on": ["x not established"], "would_change": ["y"], "tradeoffs": ["t"]}
+    errs = validate({"headline": "h", "body": "x", "claims": [bad]}, a.evidence, question="Which is better, PVD or BDL?")
+    assert any("claims robustness" in e for e in errs)

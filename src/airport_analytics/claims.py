@@ -314,6 +314,9 @@ def _validate_assessment(where: str, c: dict, store: EvidenceStore) -> list[str]
         cited |= {f.id for f in fs}
         subs = {_subject(f) for f in fs}
         fav = (cr.get("favors") or "").strip()
+        if any(not isinstance(f.value, (int, float)) for f in fs) and fav and fav.lower() not in ABSTAIN_FAVORS:
+            errs.append(f"{w}: some of its values are not established; an unknown cannot favour an option "
+                        "(set favors to 'unclear' and name it as an unknown)")
         if fav and fav.lower() not in ABSTAIN_FAVORS and fav not in subs:
             errs.append(f"{w}: favors {fav!r}, but its findings are about {sorted(subs)}")
         d = cr.get("direction")
@@ -330,6 +333,21 @@ def _validate_assessment(where: str, c: dict, store: EvidenceStore) -> list[str]
         for t in (cr.get("name", ""), cr.get("why", "")):
             errs += check_vocab(w, t, "assessment")
     judg = (c.get("judgment") or "").strip()
+    usable = [cr for cr in crits if cr.get("findings") and all(
+        i in store and isinstance(store.get(i).value, (int, float)) for i in cr["findings"])]
+    if not abstain and len(usable) < 2:
+        errs.append(f"{where}: fewer than two criteria rest on established values: the evidence is insufficient for a "
+                    "judgment; set abstain: true and say what would allow one")
+    favoured_opts = {(cr.get("favors") or "").strip() for cr in crits} - {""} - set(ABSTAIN_FAVORS) - \
+        {x.capitalize() for x in ABSTAIN_FAVORS}
+    if not abstain and len(favoured_opts) >= 2 and not c.get("tradeoffs"):
+        errs.append(f"{where}: criteria favour different options ({sorted(favoured_opts)}); state the trade-offs "
+                    "(tradeoffs) instead of hiding the conflict")
+    rob = robustness(c, store)
+    if rob and not rob["robust"] and re.search(r"\b(every|all|any) (?:weighting )?scenarios?\b|\brobust\w*|regardless of",
+                                               judg, re.I):
+        errs.append(f"{where}: the judgment claims robustness, but the preferred option changes across scenarios "
+                    f"({rob['summary']})")
     if abstain:
         if not c.get("would_change"):
             errs.append(f"{where}: an abstention must say what evidence would allow a judgment (would_change)")
@@ -349,6 +367,8 @@ def _validate_assessment(where: str, c: dict, store: EvidenceStore) -> list[str]
     for key in ("conditional_on", "would_change"):
         for k, t in enumerate(c.get(key) or []):
             errs += check_vocab(f"{where}.{key}[{k}]", t, "caveat")
+    for k, t in enumerate(c.get("tradeoffs") or []):
+        errs += check_vocab(f"{where}.tradeoffs[{k}]", t, "assessment")
     blob = " ".join([obj, judg] + [str(cr.get("why", "")) for cr in crits])
     if re.search(r"\b(weight\w*|scores?|scored|points)\b", blob, re.I) and not any(
             store.get(i).metric_id.startswith(("screen_score", "screen_contribution", "rank_score")) for i in cited):
@@ -357,8 +377,59 @@ def _validate_assessment(where: str, c: dict, store: EvidenceStore) -> list[str]
     return errs
 
 
+QUESTION_TYPES = ("factual", "investigation", "comparison", "decision")
+
+
+def _validate_investigation(inv: Any, store: EvidenceStore) -> list[str]:
+    """Objective -> investigated -> established (cited) -> unknown -> next step. Established items must cite findings;
+    unknowns are free to name what is missing (that is their purpose); nothing may claim certainty."""
+    if inv is None:
+        return []
+    if not isinstance(inv, dict):
+        return ["investigation must be an object"]
+    errs = []
+    if not (inv.get("objective") or "").strip():
+        errs.append("investigation.objective: state what the user is trying to achieve")
+    if inv.get("question_type") and inv["question_type"] not in QUESTION_TYPES:
+        errs.append(f"investigation.question_type must be one of {list(QUESTION_TYPES)}")
+    for k, t in enumerate(inv.get("established") or []):
+        ids = PH.findall(t or "")
+        if not ids:
+            errs.append(f"investigation.established[{k}]: cite the finding(s) that establish it with {{F#}}")
+        errs += [f"investigation.established[{k}]: {i} is not a finding from this session" for i in ids if i not in store]
+        errs += check_vocab(f"investigation.established[{k}]", t, "inference", rank_ok=True)
+    for key in ("objective", "next_step"):
+        errs += check_vocab(f"investigation.{key}", inv.get(key) or "", "external")      # certainty only
+    for key in ("investigated", "unknown"):
+        for k, t in enumerate(inv.get(key) or []):
+            errs += check_vocab(f"investigation.{key}[{k}]", t, "external")
+            if PH.search(t or ""):
+                errs.append(f"investigation.{key}[{k}]: values belong in 'established' (with citations), not here")
+    return errs
+
+
+def robustness(c: dict, store: EvidenceStore) -> dict | None:
+    """Deterministic sensitivity for assessments that rest on a documented scoring model: which option leads under each
+    supported weighting scenario (from the screen's own scenario ranks). None when no scoring model is cited."""
+    scores = [store.get(i) for cr in c.get("criteria") or [] if isinstance(cr, dict) for i in cr.get("findings") or []
+              if i in store and store.get(i).metric_id.startswith("screen_score") and store.get(i).subject.get("scenario_ranks")]
+    by_opt = {}
+    for f in scores:
+        by_opt.setdefault(_subject(f), f)
+    if len(by_opt) < 2:
+        return None
+    scen = list(next(iter(by_opt.values())).subject["scenario_ranks"])
+    leaders = {s: min(by_opt, key=lambda o: by_opt[o].subject["scenario_ranks"].get(s, 10 ** 6)) for s in scen}
+    tops = set(leaders.values())
+    if len(tops) == 1:
+        summary = f"{next(iter(tops))} leads under every documented weighting scenario ({', '.join(scen)})"
+    else:
+        summary = "; ".join(f"{o} leads under {', '.join(s for s in scen if leaders[s] == o)}" for o in sorted(tops))
+    return {"robust": len(tops) == 1, "leaders": leaders, "summary": summary}
+
+
 def validate_answer(answer: dict[str, Any], store: EvidenceStore, question: str | None = None) -> list[str]:
-    errs: list[str] = []
+    errs: list[str] = _validate_investigation(answer.get("investigation"), store)
     claims = [c for c in answer.get("claims", []) or [] if isinstance(c, dict)]
     if question is not None and not is_assessment_question(question) and any(c.get("kind") == "assessment" for c in claims):
         errs.append("assessment claims are only for questions that ask for a judgment, priority or recommendation; "
@@ -435,8 +506,15 @@ def expand(c: dict, store: EvidenceStore) -> dict:
                          + (f" (favours {fav})" if fav and fav.lower() not in ABSTAIN_FAVORS else " (no clear advantage)")
                          + (f": {cr.get('why', '').strip()}" if cr.get("why") else "")
                          + " [" + ", ".join(cr.get("findings") or []) + "]")
-        lines.append("Judgment: no definitive recommendation; the evidence is insufficient." if c.get("abstain")
+        lines.append(f"Judgment: no definitive recommendation; {c.get('abstain_reason') or 'the evidence is insufficient'}."
+                     if c.get("abstain")
                      else f"Judgment: {c.get('judgment', '').strip()}")
+        if c.get("tradeoffs"):
+            lines.append("Trade-offs: " + "; ".join(x.strip().rstrip(".") for x in c["tradeoffs"]) + ".")
+        rob = robustness(c, store)
+        if rob:
+            lines.append("Sensitivity (computed from the documented weighting scenarios): " + rob["summary"] + "."
+                         + ("" if rob["robust"] else " The preference depends on the weighting assumption."))
         if c.get("conditional_on"):
             lines.append("Holds only if: " + "; ".join(x.strip().rstrip(".") for x in c["conditional_on"]) + ".")
         if c.get("would_change"):

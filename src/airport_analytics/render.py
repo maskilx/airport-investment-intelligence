@@ -19,6 +19,7 @@ import re
 from typing import Any
 
 from .claims import expand as expand_claim
+from .claims import robustness
 from .claims import validate_answer as validate_claims
 from .evidence import EvidenceStore, Finding, InvalidSpec
 
@@ -153,10 +154,15 @@ def _validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str
              **{f"charts[{i}].title": (c or {}).get("title", "") for i, c in enumerate(answer.get("charts", []) or [])},
              **{f"claims[{i}].alternatives[{k}]": a for i, c in enumerate(answer.get("claims", []))
                 for k, a in enumerate(c.get("alternatives") or []) if isinstance(a, str)},
+             **{f"investigation.{k}": v for k, v in (answer.get("investigation") or {}).items()
+                if isinstance(v, str)},
+             **{f"investigation.{k}[{j}]": t for k, v in (answer.get("investigation") or {}).items()
+                if isinstance(v, list) for j, t in enumerate(v) if isinstance(t, str)},
              **{f"claims[{i}].{key}": c.get(key) or "" for i, c in enumerate(answer.get("claims", []))
-                for key in ("objective", "judgment") if isinstance(c.get(key), str)},
+                for key in ("objective", "judgment", "abstain_reason") if isinstance(c.get(key), str)},
              **{f"claims[{i}].{key}[{k}]": t for i, c in enumerate(answer.get("claims", []))
-                for key in ("conditional_on", "would_change") for k, t in enumerate(c.get(key) or []) if isinstance(t, str)},
+                for key in ("conditional_on", "would_change", "tradeoffs") for k, t in enumerate(c.get(key) or [])
+                if isinstance(t, str)},
              **{f"claims[{i}].criteria[{k}]": f"{cr.get('name', '')} {cr.get('why', '')}"
                 for i, c in enumerate(answer.get("claims", [])) for k, cr in enumerate(c.get("criteria") or [])
                 if isinstance(cr, dict)}}
@@ -187,6 +193,8 @@ def _validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str
                         errs.append(f"{where}: {fid} is about {subj} but the sentence names {sorted(codes)}")
     cited = {fid for t in texts.values() for fid, _ in PH.findall(t or "")}
     cited |= {fid for c in answer.get("claims", []) or [] if isinstance(c, dict) for fid in c.get("support") or []}
+    cited |= {fid for c in answer.get("claims", []) or [] if isinstance(c, dict)
+              for cr in c.get("criteria") or [] if isinstance(cr, dict) for fid in cr.get("findings") or []}
     cited |= {fid for c in answer.get("charts", []) or [] if isinstance(c, dict) for fid in c.get("findings") or []}
     for fid in sorted(f for f in cited if f in store and store.get(f).status != "current"):
         errs.append(f"{fid} is stale and cannot be cited: {store.get(fid).status_reason}. Re-run the analysis.")
@@ -307,6 +315,15 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
             return f"\u27e6{m.group(1)}|{v}\u27e7" if m.group(2) in (None, "value") else v
         return WPH.sub(wsub_marked, PH.sub(subm, t or ""))
     lines = [f"## {r(answer['headline'])}", "", r(answer["body"])]
+    inv = answer.get("investigation") or None
+    if inv:
+        lines += ["", "**Investigation summary**", f"- Objective ({inv.get('question_type', 'investigation')}): "
+                  f"{r(inv.get('objective', ''))}"]
+        for key, title in (("investigated", "Investigated"), ("established", "Established"), ("unknown", "Unknown")):
+            if inv.get(key):
+                lines.append(f"- {title}: " + "; ".join(r(x) for x in inv[key]))
+        if inv.get("next_step"):
+            lines.append(f"- Most useful next step: {r(inv['next_step'])}")
     claims = [expand_claim(c, store) for c in answer.get("claims", [])]      # comparison/ranking text written by code
     if claims:
         lines += ["", "**Findings and reasoning**"]
@@ -354,14 +371,22 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
     ids = list(dict.fromkeys(ids + [f for c in charts for f in c["findings"]]))
     structured = {"headline": r(answer["headline"]), "body": rm(answer["body"]),
                   "scoring_method": method,
+                  "investigation": ({"objective": rm(inv.get("objective", "")),
+                                     "question_type": inv.get("question_type", "investigation"),
+                                     **{k: [rm(x) for x in inv.get(k) or []] for k in ("investigated", "established", "unknown")},
+                                     "next_step": rm(inv.get("next_step", ""))} if inv else None),
                   "claims": [{"kind": c["kind"], "label": claim_label(c, store), "text": rm(c["text"]),
                               "support": c.get("support") or [],
                               **({"source": c["source"], "quote": INVISIBLE.sub("", c["quote"]).strip()}
                                  if c["kind"] == "external" else {}),
                               **({"assessment": {
                                   "objective": c.get("objective", ""), "abstain": bool(c.get("abstain")),
+                                  "abstain_reason": c.get("abstain_reason", ""),
                                   "judgment": c.get("judgment", ""), "conditional_on": c.get("conditional_on") or [],
                                   "would_change": c.get("would_change") or [],
+                                  "tradeoffs": c.get("tradeoffs") or [],
+                                  "robustness": (robustness(c, store) or {}).get("summary"),
+                                  "robust": (robustness(c, store) or {}).get("robust"),
                                   "criteria": [{"name": cr.get("name", ""), "why": cr.get("why", ""),
                                                 "favors": cr.get("favors", ""), "findings": cr.get("findings") or []}
                                                for cr in c.get("criteria") or [] if isinstance(cr, dict)]}}

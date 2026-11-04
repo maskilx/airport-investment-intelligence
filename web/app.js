@@ -325,7 +325,10 @@ function claimEl(c) {
       h("table", { class: "ev crit" }, h("thead", {}, h("tr", {}, ["Criterion", "Favours", "Evidence", "Why it matters"].map((x) => h("th", {}, x)))),
         h("tbody", {}, a.criteria.map((k) => h("tr", {}, h("td", {}, k.name), h("td", { class: "v" }, fav(k.favors)),
           h("td", {}, fidChips(k.findings)), h("td", {}, k.why || ""))))),
-      h("p", {}, h("strong", {}, "Judgment: "), a.abstain ? "No definitive recommendation: the evidence is insufficient." : a.judgment),
+      h("p", {}, h("strong", {}, "Judgment: "), a.abstain ? `No definitive recommendation: ${a.abstain_reason || "the evidence is insufficient"}.` : a.judgment),
+      a.tradeoffs?.length ? h("p", {}, h("strong", {}, "Trade-offs: "), a.tradeoffs.join("; ")) : null,
+      a.robustness ? h("p", {}, h("strong", { title: "Recomputed by the scoring engine under each documented weighting scenario. This is not a statistical confidence." }, "Sensitivity (computed): "),
+        a.robustness, a.robust === false ? " The preference depends on the weighting assumption." : "") : null,
       a.conditional_on?.length ? h("p", {}, h("strong", {}, "Holds only if: "), a.conditional_on.join("; ")) : null,
       a.would_change?.length ? h("p", {}, h("strong", {}, "Would change with: "), a.would_change.join("; ")) : null));
   }

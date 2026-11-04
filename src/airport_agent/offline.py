@@ -14,6 +14,8 @@ import uuid
 from typing import Any
 
 from airport_analytics.claims import is_assessment_question
+from airport_analytics.information import check as check_information
+from airport_analytics.information import match_concepts
 
 from .models import ModelResponse, Usage
 
@@ -111,9 +113,13 @@ class OfflineBackend:
     # ------------------------------------------------------------------ planning
     def _plan(self, q: str, memory: str, done: list, prev_q: str = "") -> ModelResponse:
         intent = next((k for k, rx in INTENT_WORDS if re.search(rx, q, re.I)), None)
+        q_intent = intent                  # what the question itself says (before context fills gaps)
         if not intent and CORRECTION.search(q) and prev_q:          # a correction keeps the previous question's intent
             intent = next((k for k, rx in INTENT_WORDS if re.search(rx, prev_q, re.I)), None)
         metrics = [m for m, rx in METRIC_WORDS if re.search(rx, q, re.I)]
+        gap = next((g for g in match_concepts(q) if g != "unmet_demand"), None)
+        if gap and intent not in ("screen", "long_haul", "unmet"):
+            intent = "gap"                 # a measure we do not hold: classify it and run the proxies (not a refusal)
         focus_t = [(c, int(f), int(l)) for c, f, l in
                    re.findall(r"\b([A-Z][A-Z0-9]{2,3}) \(airport, first turn (\d+), last turn (\d+)\)", memory)]
         focus = [c for c, _, _ in focus_t]                      # most recent first
@@ -131,14 +137,13 @@ class OfflineBackend:
         terms = self._terms(q)
         names = [u["name"] for u, _ in done]
 
-        # 0) topics that are not in the internal data: an honest answer, not a nearby metric
-        missing = [(what, alt) for rx, what, alt in NOT_IN_DATA if re.search(rx, q, re.I)]
-        if missing and not done:
-            whats = ", ".join(w for w, _ in missing)
-            alts = "; ".join(sorted({a for _, a in missing}))
-            return _text(f"[{LABEL}] The internal datasets do not contain {whats}, so I cannot answer that part from "
-                         f"evidence. What the data does cover nearby: {alts}. With the LLM backend, web research can add "
-                         "cited external context.")
+        # 0) a measure we do not hold, and no airport to run proxies for: explain the gap and the useful next step
+        if intent == "gap" and not done and not terms and not focus:
+            info = check_information(q)
+            return _text(f"[{LABEL}] {info['label'].capitalize()} is not in the internal datasets. "
+                         f"What cannot be established: {info['cannot_establish']} Closest indicators I can compute: "
+                         f"{', '.join(p['name'] for p in info['proxies'])}. Most useful next step: {info['next_step']} "
+                         "Name an airport and I will run those indicators, labelled as proxies.")
         # 0b) an analyst-set long-haul threshold is a *bound* assumption: code then marks findings computed with any
         #     other threshold stale (assumptions.py), so a later answer cannot silently cite them
         bound = BOUND_LH.findall(memory)
@@ -194,6 +199,15 @@ class OfflineBackend:
                 airports = items[:k]
             else:
                 airports = items[ordinals[nth.group(1).lower()]:][:1]
+        assumed = None
+        if is_assessment_question(q) and not airports and not group:
+            # use the conversation before asking: the last ranked list, else the two airports in focus
+            if ranked:
+                airports = re.findall(r"\b([A-Z][A-Z0-9]{2,3})\b(?= \[|,|$)", ranked[-1])[:2]
+            elif len(focus) >= 2:
+                airports = focus[:2]
+            if airports:
+                assumed = f"the options are {' and '.join(airports)}, taken from the earlier conversation"
         if not airports and not group:
             if focus and (REFERENCE.search(q) or not terms):
                 airports = focus[:2] if re.search(r"\b(both|compare|them|their|those|these)\b", q, re.I) else focus[:1]
@@ -212,6 +226,13 @@ class OfflineBackend:
             return _text("Which airport or region should I analyze? You can use a code (SFO), a city, or a region.")
 
         analyses = [(u, r) for u, r in done if u["name"] == "run_analysis"]
+        if is_assessment_question(q) and len(airports) >= 2 and q_intent not in ("screen", "congestion"):
+            ctx_obj = self._objective_from_context(prev_metrics)
+            if ctx_obj:
+                intent = ctx_obj
+                assumed = ((assumed + "; ") if assumed else "") + (
+                    "the objective is passenger growth opportunity, as in the earlier screen" if ctx_obj == "screen"
+                    else "the objective is airside congestion, as in the earlier comparison")
         assess = is_assessment_question(q) and len(airports) >= 2 and not group
         if assess and intent not in ("screen", "congestion") and not analyses:
             # a judgment needs an objective: different objectives use different criteria and can flip the answer
@@ -220,6 +241,8 @@ class OfflineBackend:
                          "Which objective should the assessment use?")
         if not analyses:
             lh = int(thr.group(1)) if thr else (int(bound[-1][1]) if bound else None)
+            if intent == "gap":
+                metrics = [p["metric"] for p in check_information(q)["proxies"]]
             specs = self._specs(intent, metrics, airports, group, lh)
             if not specs:
                 return _text(f"[{LABEL}] I can run screening, congestion, long-haul, unmet-demand indicators, trends and "
@@ -230,7 +253,18 @@ class OfflineBackend:
             errs = (composes[-1][1] or {}).get("errors", []) if isinstance(composes[-1][1], dict) else []
             return _text(f"[{LABEL}] The answer draft did not pass grounding validation"
                          f"{' (details in the trace)' if errs else ''}; please rephrase.")
-        return _calls([_tu("compose_answer", {"answer": self._compose(intent, q, analyses, airports, region_label)})])
+        ans = self._compose(intent, q, analyses, airports, region_label)
+        if assumed:
+            ans.setdefault("assumptions", []).insert(0, f"Assumed from context (say so if wrong): {assumed}.")
+        return _calls([_tu("compose_answer", {"answer": ans})])
+
+    @staticmethod
+    def _objective_from_context(prev_metrics: list[str]) -> str | None:
+        if "screen_score" in prev_metrics:
+            return "screen"
+        if any(m in prev_metrics for m in ("dep_delay15_rate", "avg_taxi_out_min", "peak_hour_ops_p95")):
+            return "congestion"
+        return None
 
     @staticmethod
     def _terms(q: str) -> list[str]:
@@ -290,6 +324,8 @@ class OfflineBackend:
             return {"headline": "This could not be established from the data",
                     "body": "The analyses needed for this question returned errors; see the limitations below.",
                     "limitations": lim}
+        if intent == "gap":
+            return self._compose_gap(q, ok, airports, lim)
         if is_assessment_question(q) and len(airports) >= 2 and not region and intent in ("screen", "congestion"):
             return self._compose_assessment(intent, ok, airports, lim)
         if intent == "screen":
@@ -375,7 +411,48 @@ class OfflineBackend:
                                       "airfield, slot or gate-allocation rules may limit supply independently of "
                                       "terminal size"]})
             ans["limitations"].append("Unmet demand is not directly measurable here (no fares, spill or booking data).")
+            info = check_information("unmet demand")
+            ans["investigation"] = {
+                "objective": "Understand whether demand at the airport exceeds what is served, and why",
+                "question_type": "investigation",
+                "investigated": ["whether unmet demand is measured in the internal datasets (it is not)",
+                                 "demand-pressure indicators: load factor, capacity-tight routes, peak scheduling, "
+                                 "delays, traffic change, carrier concentration, forecast versus actual"],
+                "established": [f"{{{f}.name}} at {ap}: {{{f}}} ({{{f}.period}})" for ap, k, f in cells
+                                if k.split("(")[0] in ("seat_factor", "tight_capacity_pax_share", "peak_hour_ops_p95")][:3],
+                "unknown": [info["cannot_establish"], "which of the competing explanations dominates"],
+                "next_step": info["next_step"]}
         return ans
+
+    @staticmethod
+    def _compose_gap(q: str, ok: list, airports: list[str], lim: list[str]) -> dict:
+        """The requested measure is not held: show the proxies (labelled), what they cannot establish, the next step."""
+        info = check_information(q)
+        facts, est = [], []
+        for _, r in ok:
+            for row in r.get("table", []):
+                ap = row.get("airport") or (airports[0] if len(airports) == 1 else None)
+                for k, v in row.items():
+                    if isinstance(v, dict) and v.get("id") and v.get("value") is not None and ap:
+                        facts.append({"kind": "fact", "text": f"Proxy, {ap}: {{{v['id']}.name}} is {{{v['id']}}} "
+                                      f"({{{v['id']}.period}}).", "support": [v["id"]]})
+                        est.append(f"{{{v['id']}.name}} at {ap}: {{{v['id']}}}")
+        lim.append(f"{info['label'].capitalize()} is not in the internal datasets, so the values above are proxies, not "
+                   f"measurements of it, and this is not established: {info['cannot_establish'].rstrip('.')}.")
+        return {"headline": "What the data can and cannot show: " + ", ".join(airports),
+                "body": "The requested measure is not held in the internal datasets. Below are the closest indicators, "
+                        "labelled as proxies, what they cannot establish, and the most useful next step.",
+                "claims": facts[:10],
+                "assumptions": [f"Proxy rationale: {info['proxy_note']}"] if info.get("proxy_note") else [],
+                "limitations": lim,
+                "investigation": {
+                    "objective": f"Answer a question about {info['label']} for " + ", ".join(airports),
+                    "question_type": "investigation",
+                    "investigated": [f"whether the catalog measures {info['label']} (case: {info['case'].replace('_', ' ')})",
+                                     "which catalog indicators are reasonable proxies"],
+                    "established": est[:4],
+                    "unknown": [info["cannot_establish"]] + [f"needed: {n}" for n in info["needed"][:2]],
+                    "next_step": info["next_step"]}}
 
     @staticmethod
     def _compose_assessment(intent: str, ok: list, airports: list[str], lim: list[str]) -> dict:
@@ -415,6 +492,8 @@ class OfflineBackend:
             if unscored:
                 lim.append("Not scored (below the passenger-scale gate or missing an input): " + ", ".join(unscored) + ".")
             abstain = bool(close) or len(rows) < 2
+            reason = ("the scores are within the tie band, so the airports are too close to call on this screen"
+                      if close else "fewer than two airports could be scored")
             judgment = "" if abstain else (
                 f"{top} is the stronger passenger-growth opportunity of the airports compared"
                 + (", and it stays first under every weighting scenario." if stable
@@ -439,14 +518,22 @@ class OfflineBackend:
             votes = [c_["favors"] for c_ in crits if c_["favors"] != "neither"]
             best = max(set(votes), key=votes.count) if votes else None
             abstain = len(crits) < 2 or not best or votes.count(best) <= len(crits) / 2
+            reason = ("the indicators point in different directions, with no majority"
+                      if len(crits) >= 2 else "too few comparable indicators are available")
             judgment = "" if abstain else f"{best} shows less airside congestion on most of the indicators compared."
             cond = ["airside indicators are the relevant notion of congestion (terminal crowding is not measured)",
                     "On-Time coverage (reporting carriers, domestic flights) is representative at both airports"]
             change = ["terminal throughput or security-wait data", "the same indicators for international traffic",
                       "a longer or seasonal comparison window"]
         fids_all = [i for c_ in crits for i in c_["findings"]]
+        favours: dict[str, list[str]] = {}
+        for c_ in crits:
+            if c_["favors"] != "neither" and not c_["name"].startswith("Overall"):
+                favours.setdefault(c_["favors"], []).append(c_["name"].split(" (")[0].lower())
+        tradeoffs = [f"{opt} is favoured on {', '.join(names)}" for opt, names in favours.items()] if len(favours) > 1 else []
         claim = {"kind": "assessment", "objective": objective, "criteria": crits, "judgment": judgment,
-                 "abstain": abstain, "conditional_on": cond, "would_change": change}
+                 "abstain": abstain, "conditional_on": cond, "would_change": change, "tradeoffs": tradeoffs,
+                 **({"abstain_reason": reason} if abstain else {})}
         head = ("Assessment: passenger growth opportunity, " if intent == "screen" else "Assessment: airside congestion, ") \
             + " and ".join(airports)
         return {"headline": head,

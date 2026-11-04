@@ -336,7 +336,10 @@ _ANSWER = {"type": "object", "properties": {
                          "favors": {"type": "string", "description": "airport code it favours, or neither"},
                          "direction": {"enum": ["higher_is_better", "lower_is_better"]}}, "required": ["name", "findings"]}},
         "judgment": {"type": "string"}, "abstain": {"type": "boolean"},
+        "abstain_reason": {"type": "string", "description": "why no judgment: insufficient evidence, a tie, conflicting signals"},
         "conditional_on": {"type": "array", "items": {"type": "string"}},
+        "tradeoffs": {"type": "array", "items": {"type": "string"},
+                      "description": "assessment: required when criteria favour different options"},
         "would_change": {"type": "array", "items": {"type": "string"}},
         "text": {"type": "string"},
         "support": {"type": "array", "items": {"type": "string"}},
@@ -349,6 +352,14 @@ _ANSWER = {"type": "object", "properties": {
         "source": {"type": "string"}, "quote": {"type": "string"}}, "required": ["kind"]}},
     "assumptions": {"type": "array", "items": {"type": "string"}},
     "limitations": {"type": "array", "items": {"type": "string"}},
+    "investigation": {"type": "object", "description": "for investigations and decisions: a concise, auditable summary "
+                      "(not internal reasoning)", "properties": {
+        "objective": {"type": "string", "description": "what the user is trying to achieve, as you understood it"},
+        "question_type": {"enum": ["factual", "investigation", "comparison", "decision"]},
+        "investigated": {"type": "array", "items": {"type": "string"}},
+        "established": {"type": "array", "items": {"type": "string"}, "description": "each cites {F#}"},
+        "unknown": {"type": "array", "items": {"type": "string"}},
+        "next_step": {"type": "string"}}},
     "charts": {"type": "array", "items": {"type": "object", "properties": {
         "type": {"enum": ["auto", "bar", "line", "scatter", "table"]}, "title": {"type": "string"},
         "findings": {"type": "array", "items": {"type": "string"}}}, "required": ["findings"]}}},
@@ -385,6 +396,14 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          "Escape hatch: one read-only SELECT over whitelisted views (" + ", ".join(SQL_VIEWS) + "). Results are labelled "
          "'exploratory' and must be presented as such. Prefer run_analysis whenever a catalog metric exists.",
          {"type": "object", "properties": {"sql": {"type": "string"}}, "required": ["sql"]}, _sql),
+    Tool("check_information",
+         "Before saying something cannot be answered: classify an information need (e.g. 'unmet demand', 'fares', "
+         "'gates', 'landing fees'). Returns case = exists | derivable | proxy | external | not_measurable | unknown, "
+         "the closest catalog proxy metrics, what they cannot establish, what data would be needed, and the most "
+         "useful next step. Run the proxies, label them as proxies, never estimate the missing quantity.",
+         {"type": "object", "properties": {"need": {"type": "string"}}, "required": ["need"]},
+         lambda s, a: __import__("airport_analytics.information", fromlist=["check"]).check(
+             str(a.get("need") or ""), web_available=bool(getattr(s, "web", None) is not None and getattr(s, "web_enabled", False)))),
     Tool("get_finding",
          "Return full provenance of a finding (definition, sources, vintages, window, coverage, caveats, inputs, spec); "
          "reproduce=true re-executes its spec.",

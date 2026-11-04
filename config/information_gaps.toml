@@ -1,0 +1,87 @@
+# What the agent does when a question needs information our datasets do not measure directly.
+# Read by airport_analytics.information (tool: check_information). Each concept states which of the six cases applies
+# (docs/10, "missing information"), the closest supported indicators (catalog metric ids, validated at load), what they
+# cannot establish, what would be needed, and the most useful next step. Edit here; no code changes needed.
+#
+# case:
+#   proxy          - not measured, but catalog indicators give useful partial evidence (say they are proxies)
+#   external       - a reputable public source exists outside our database (web research or a new source adapter)
+#   not_measurable - cannot be established from available measurements; give partial analysis and the next step
+# A concept can list external sources even when proxies exist.
+
+[concepts.unmet_demand]
+label = "unmet (latent / spilled) passenger demand"
+keywords = ["unmet demand", "unmet flight demand", "latent demand", "pent-up demand", "pent up demand", "spill", "demand exceeds", "excess demand", "suppressed demand", "denied demand"]
+case = "not_measurable"
+proxies = ["seat_factor", "tight_capacity_pax_share", "peak_hour_ops_p95", "dep_delay15_rate", "passengers", "top_carrier_share"]
+proxy_note = "High load factors, capacity-tight routes, a busy scheduled peak and delays are consistent with demand pressure, but each also has other explanations (airline pricing, hub banking, weather)."
+cannot_establish = "How many travellers wanted to fly but could not (no booking, spill or fare data)."
+needed = ["airline booking / spill data (proprietary)", "fares by route (US DOT Airline Origin and Destination Survey, public, quarterly)", "slot or gate allocation rules at the airport"]
+external = ["US DOT / BTS Airline Origin and Destination Survey for fares and routes"]
+next_step = "Add Origin and Destination Survey fares to test whether high load factors coincide with rising fares (a scarcity signal), and compare scheduled peak hours with the FAA capacity profile."
+
+[concepts.fares]
+label = "airfares / yields"
+keywords = ["fare", "fares", "airfare", "airfares", "ticket price", "ticket prices", "yield", "yields"]
+case = "external"
+proxies = ["seat_factor", "top_carrier_share", "passengers"]
+proxy_note = "Load factor and carrier concentration indicate pricing power, but they are not prices."
+cannot_establish = "Actual fares or yields."
+needed = ["BTS Average Domestic Airline Itinerary Fares (public, quarterly) or the Origin and Destination Survey"]
+external = ["BTS Average Domestic Airline Itinerary Fares"]
+next_step = "Add the BTS average-fare dataset as a source adapter (public, quarterly) to answer fare questions with evidence."
+
+[concepts.terminal_capacity]
+label = "terminal capacity (gates, floor area, processing capacity)"
+keywords = ["gates", "gate", "terminal capacity", "square feet", "square foot", "sq ft", "terminal size", "terminal space", "terminal area", "terminal crowding", "passenger processing"]
+case = "external"
+proxies = ["peak_hour_ops_p95", "passengers", "seats_per_departure"]
+proxy_note = "Scheduled peak-hour operations and passenger volume indicate load on a terminal, not its capacity."
+cannot_establish = "Gate counts, terminal floor area or design-hour capacity, so terminal utilisation cannot be computed."
+needed = ["airport master plan or terminal capacity study (primary documents)", "committed terminal projects"]
+external = ["airport master plans and FAA environmental documents (primary sources)"]
+next_step = "Collect the airport's current master plan (gates and design-hour passengers) as a primary-evidence curated record; then terminal utilisation becomes a derived metric."
+
+[concepts.airport_finances]
+label = "airport finances (revenue, profit, cost per enplanement, landing fees)"
+keywords = ["profit", "profitable", "profitability", "revenue", "revenues", "roi", "return on investment", "cost per enplanement", "cost per enplaned", "cost per passenger", "cpe", "landing fee", "landing fees", "concession", "concessions", "parking revenue", "ebitda", "irr", "npv"]
+case = "external"
+proxies = ["grants_awarded_usd", "npias_need_usd", "npias_need_per_enplanement", "passengers"]
+proxy_note = "Federal grants and NPIAS development needs describe capital needs and funding, not profitability."
+cannot_establish = "Revenue, costs, profitability or investor returns."
+needed = ["FAA Certification Activity Tracking System (CATS) airport financial reports (public, annual)", "project costs and revenue-sharing terms (deal-specific)"]
+external = ["FAA CATS airport financial data"]
+next_step = "Add FAA CATS financial reports (public) for revenue and cost per enplanement; project returns additionally need deal-specific cost and revenue-rights assumptions from the analyst."
+
+[concepts.security_wait]
+label = "security / TSA wait times"
+keywords = ["security wait", "tsa wait", "security line", "security lines", "queue time", "checkpoint wait"]
+case = "not_measurable"
+proxies = ["passengers", "peak_hour_ops_p95"]
+proxy_note = "Passenger volume and peak scheduling indicate load on checkpoints, not waiting time."
+cannot_establish = "Actual waiting times."
+needed = ["TSA checkpoint throughput and wait-time data (not published in a usable historical form)"]
+external = ["TSA checkpoint travel numbers (national throughput only)"]
+next_step = "Treat peak-hour passenger load as the proxy, and request airport-reported wait-time data if security throughput is decision-relevant."
+
+[concepts.weather]
+label = "weather conditions"
+keywords = ["weather", "wind", "visibility", "precipitation", "cloud ceiling", "fog", "snow"]
+case = "proxy"
+proxies = ["weather_delay_min_per_arrival", "nas_delay_min_per_arrival"]
+proxy_note = "Weather-attributed delay minutes measure weather's operational impact, not the weather itself."
+cannot_establish = "Observed weather conditions."
+needed = ["NOAA weather observations (METAR/ASOS) for the airport"]
+external = ["NOAA Aviation Weather Center data"]
+next_step = "If weather exposure matters, add NOAA ASOS observations; otherwise use weather-attributed delay minutes as the operational proxy."
+
+[concepts.passenger_experience]
+label = "passenger satisfaction / experience"
+keywords = ["satisfaction", "passenger experience", "customer experience", "rating", "ratings", "reviews"]
+case = "not_measurable"
+proxies = ["dep_delay15_rate", "avg_taxi_out_min", "cancel_rate"]
+proxy_note = "Punctuality and cancellations are measurable service outcomes, not satisfaction."
+cannot_establish = "Satisfaction or perceived experience."
+needed = ["survey data (for example ACI ASQ or J.D. Power, proprietary)"]
+external = []
+next_step = "Use punctuality as the measurable service proxy, and treat satisfaction as an external survey input."
