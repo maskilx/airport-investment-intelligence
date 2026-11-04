@@ -212,7 +212,7 @@ class Agent:
     def __init__(self, backend: ModelBackend, session: Session | None = None, store: ConversationStore | None = None,
                  conv_id: str | None = None, budget: Budget | None = None, limits: Limits | None = None,
                  summarizer: Callable[[str], str] | None = None, extra_tools: dict[str, tuple[dict, Callable]] | None = None,
-                 max_steps: int | None = None, web: Any = None):
+                 max_steps: int | None = None, web: Any = None, live_status: bool = True):
         self.backend = backend
         self.session = session or Session()
         self.store = store or ConversationStore(":memory:")
@@ -232,6 +232,9 @@ class Agent:
         self.summarizer = summarizer
         self.extra_tools = dict(extra_tools or {})
         self.session.web = self.store.load_external(self.conv_id)        # W# external evidence (own namespace)
+        if live_status and "live_airport_status" not in self.extra_tools:   # the one live public REST API (FAA NAS Status)
+            from .live_status import LiveStatus
+            self.extra_tools.update(LiveStatus(self.session.web).tools())
         self.web = None
         if web:
             from .web import WebResearch

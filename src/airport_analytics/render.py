@@ -255,6 +255,25 @@ def claim_label(c: dict, store: EvidenceStore) -> str:
             "financial": "Financial"}.get(kind, str(kind))
 
 
+def spoken_text(answer: dict, claims: list[dict], r) -> str:
+    """What voice mode says: built only from the VALIDATED, rendered answer (no second model rewrites it). Headline,
+    the judgment if there is one, then up to three leading statements; the full evidence stays on screen."""
+    from airport_agent.voice import speakable
+    parts = [r(answer.get("headline", ""))]
+    for c in claims:
+        if c.get("kind") == "assessment":
+            parts.append(f"Judgment: {c.get('judgment')}" if not c.get("abstain")
+                         else f"No definitive recommendation: {c.get('abstain_reason') or 'the evidence is insufficient'}")
+    lead = [c for c in claims if c.get("kind") in ("comparison", "ranking", "hypothesis", "inference")] or \
+        [c for c in claims if c.get("kind") == "fact"]
+    for c in lead[:3]:
+        t = r(c.get("text", "")).split("\n")[0]
+        parts.append(t if len(t) < 400 else t[:400].rsplit(" ", 1)[0] + ".")
+    if answer.get("limitations"):
+        parts.append("Limitations and the evidence for every number are shown on screen.")
+    return speakable(". ".join(p.rstrip(".") for p in parts if p) + ".")
+
+
 def scoring_method(answer: dict, claims: list[dict], store: EvidenceStore) -> list[str]:
     ids = {m[0] for m in PH.findall(answer.get("body", "") or "")}
     ids |= {f for c in claims for f in (c.get("support") or [])}
@@ -400,5 +419,6 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
                   "caveats": list(dict.fromkeys(c for f in expanded for c in f.caveats)),
                   "methodology": {f.metric_id: f.definition for f in expanded},
                   "evidence": list(dict.fromkeys([f.id for f in expanded] + ids)),
-                  "charts": charts}
+                  "charts": charts,
+                  "spoken": spoken_text(answer, claims, r)}
     return {"markdown": "\n".join(lines), "cited_findings": ids, "structured": structured}

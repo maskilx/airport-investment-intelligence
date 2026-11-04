@@ -157,7 +157,7 @@ function finishStrip(row, fin) {
 }
 
 // ---------------------------------------------------------------- asking (SSE over fetch)
-async function ask(text) {
+async function ask(text, opts = {}) {
   text = text.trim();
   if (!text || state.running) return;
   if (!state.conv) {
@@ -178,7 +178,8 @@ async function ask(text) {
   const status = (t) => { strips.querySelector(".status").textContent = t; };
   try {
     const resp = await fetch(`/api/conversations/${state.conv}/messages`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, ...(opts.clientTurnId ? { client_turn_id: opts.clientTurnId } : {}) }) });
     if (!resp.ok) throw new Error(`${resp.status} ${await resp.text()}`);
     const reader = resp.body.getReader();
     const dec = new TextDecoder();
@@ -200,11 +201,12 @@ async function ask(text) {
         else if (e.type === "tool_finished") { const r = rows.get(e.id); if (r) finishStrip(r, e); }
         else if (e.type === "memory_compacted") strips.append(h("div", { class: "thought" }, `Memory compacted: turns ≤ ${e.upto_turn} summarised (${e.method}); findings unchanged.`));
         else if (e.type === "error") strips.append(h("div", { class: "thought" }, `Error: ${e.message}`));
+        else if (e.type === "duplicate") { el.remove(); }       // a reconnect re-sent a turn the server already has
         else if (e.type === "answer") {
           status(`${tools} tool calls · ${e.latency_s}s · ${e.usage?.requests ?? 0} ${state.health && !state.health.llm ? "planner steps" : "model requests"}`);
           renderAnswer(el, e);
           strips.open = false;
-          if ($("#speakToggle").checked) speak(e);
+          if (opts.voice || voice.on || $("#speakToggle").checked) speakAnswer(e);
         }
       }
     }
@@ -215,6 +217,7 @@ async function ask(text) {
   } finally {
     strips.querySelector(".pulse").classList.add("off");
     setRunning(false);
+    voiceTurnDone();
     loadConvs();
     if (currentTab() === "memory") showMemory();
   }
@@ -494,33 +497,154 @@ function setCtx(c) {
   $("#ctxText").textContent = `ctx ${(c.recent_tokens + c.memory_tokens).toLocaleString()} tok · ${c.turns_verbatim}/${c.turns_total} turns`;
 }
 
-// ---------------------------------------------------------------- voice (browser speech; no server, no cost)
+// ---------------------------------------------------------------- live voice: another interface to the SAME agent
+// Chained pipeline (docs/voice-architecture-review.md): speech -> transcript -> the existing /messages endpoint (same
+// conversation, tools, validation) -> the server's spoken rendering of the VALIDATED answer -> browser speech synthesis.
+// Server speech-to-text (Groq Whisper) when configured, with Silero VAD in the browser; otherwise Web Speech recognition.
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null;
-function toggleMic() {
-  if (!SR) { alert("Speech recognition is not available in this browser (try Chrome or Edge)."); return; }
-  if (rec) { rec.stop(); return; }
-  rec = new SR();
-  rec.lang = "en-US"; rec.interimResults = true; rec.continuous = false;
-  const mic = $("#micBtn"); mic.classList.add("on");
-  let final = "";
-  rec.onresult = (ev) => {
+const voice = { on: false, state: "off", cfg: null, rec: null, vad: null, queue: null, lastFinal: "", lastFinalAt: 0,
+  speaking: "", pending: 0, retry: 0, sentIds: new Set(), mode: "" };
+const VSTATE = { off: "Voice off", connecting: "Connecting microphone…", listening: "Listening: speak naturally",
+  processing: "Working on it…", speaking: "Speaking: talk or press Esc to interrupt",
+  disconnected: "Microphone connection lost: reconnecting", error: "Voice unavailable" };
+function vstate(s, detail) {
+  voice.state = s;
+  const bar = $("#voiceBar");
+  bar.dataset.state = s;
+  $("#voiceState").textContent = VSTATE[s] + (detail ? ` · ${detail}` : "");
+  $("#micBtn").classList.toggle("on", voice.on);
+}
+function vtranscript(t, final) { const el = $("#voiceText"); el.textContent = t ? `“${t}”` : ""; el.classList.toggle("final", !!final); }
+const words = (t) => (t || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
+function isEcho(t) {            // the microphone hearing our own speech output is not a user turn
+  if (!voice.speaking) return false;
+  const w = words(t), said = new Set(words(voice.speaking));
+  return w.length > 0 && w.filter((x) => said.has(x)).length / w.length >= 0.6;
+}
+async function voiceStart() {
+  voice.on = true; $("#voiceBar").hidden = false; vstate("connecting");
+  try { voice.cfg = voice.cfg || await api("/api/voice/config"); } catch { voice.cfg = { stt: "browser" }; }
+  if (voice.cfg.stt === "groq" && await startVAD()) return;
+  startBrowserSR();
+}
+function voiceStop() {
+  voice.on = false; stopSpeaking();
+  try { voice.rec?.abort(); } catch {}
+  voice.rec = null; voice.vad?.pause();
+  vstate("off"); $("#voiceBar").hidden = true; vtranscript("");
+}
+function startBrowserSR() {
+  if (!SR) { vstate("error", "this browser has no speech recognition: use Chrome or Safari, or type your question"); return; }
+  voice.mode = "browser";
+  const r = new SR(); voice.rec = r;
+  r.lang = "en-US"; r.continuous = true; r.interimResults = true;
+  r.onstart = () => { voice.retry = 0; if (voice.state === "connecting" || voice.state === "disconnected") vstate(state.running ? "processing" : (voice.speaking ? "speaking" : "listening")); };
+  r.onresult = (ev) => {
     let interim = "";
-    for (const r of ev.results) (r.isFinal ? (final = r[0].transcript) : (interim += r[0].transcript));
-    $("#input").value = final || interim;
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const res = ev.results[i], t = res[0].transcript.trim();
+      if (res.isFinal) { if (t) onUtterance(t, `sr-${voice.sessionId}-${i}-${t.length}`); }
+      else interim += t + " ";
+    }
+    if (interim.trim() && !isEcho(interim)) { if (voice.state === "speaking" && words(interim).length >= 2) bargeIn(); vtranscript(interim.trim(), false); }
   };
-  rec.onend = () => { mic.classList.remove("on"); rec = null; if (final.trim()) ask(final); $("#input").value = ""; };
-  rec.onerror = () => { mic.classList.remove("on"); rec = null; };
-  rec.start();
+  r.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") { voice.on = false; vstate("error", "microphone permission denied"); }
+    else if (e.error !== "no-speech" && e.error !== "aborted") vstate("disconnected", e.error);
+  };
+  r.onend = () => {                                           // recognition stops on silence/network: keep the session alive
+    if (!voice.on || voice.rec !== r) return;
+    const delay = voice.state === "disconnected" ? Math.min(8000, 500 * 2 ** voice.retry++) : 150;
+    setTimeout(() => { if (voice.on && voice.rec === r) { try { r.start(); } catch { startBrowserSR(); } } }, delay);
+  };
+  voice.sessionId = Date.now().toString(36);
+  try { r.start(); } catch (e) { vstate("error", e.message); }
 }
-function speak(e) {
-  if (!window.speechSynthesis) return;
-  const s = e.structured;
-  const text = s ? `${s.headline}. ${plainText(s.body).split(/\n/).slice(0, 3).join(". ")}` : plainText(e.markdown);
-  const u = new SpeechSynthesisUtterance(text.replace(/[—…]/g, ", ").slice(0, 600));
-  u.lang = "en-US";
-  speechSynthesis.cancel(); speechSynthesis.speak(u);
+function onUtterance(text, id) {
+  if (!voice.on || voice.sentIds.has(id)) return;
+  voice.sentIds.add(id);
+  if (isEcho(text)) return;
+  const norm = words(text).join(" ");
+  if (!norm || (norm === voice.lastFinal && Date.now() - voice.lastFinalAt < 5000)) return;   // double-fired final
+  voice.lastFinal = norm; voice.lastFinalAt = Date.now();
+  vtranscript(text, true);
+  stopSpeaking();
+  if (state.running) { voice.queue = { text, id }; vstate("processing", "next question queued"); return; }
+  vstate("processing");
+  ask(text, { clientTurnId: id, voice: true });
 }
+function speakAnswer(e) {
+  if (!window.speechSynthesis) { if (voice.on) vstate("listening", "no speech output in this browser"); return; }
+  const text = e.structured?.spoken || plainText(e.markdown || "").slice(0, 700);
+  const sentences = (text.match(/[^.!?]+[.!?]*/g) || [text]).map((x) => x.trim()).filter(Boolean);
+  speechSynthesis.cancel();
+  voice.speaking = text; voice.pending = sentences.length;
+  if (voice.on) vstate("speaking");
+  const v = pickVoice();
+  for (const sen of sentences) {                     // sentence by sentence: starts at once, stops mid-answer cleanly
+    const u = new SpeechSynthesisUtterance(sen);
+    u.lang = "en-US"; u.rate = 1.04; if (v) u.voice = v;
+    u.onend = u.onerror = () => { if (--voice.pending <= 0) { voice.speaking = ""; if (voice.on && voice.state === "speaking") vstate("listening"); } };
+    speechSynthesis.speak(u);
+  }
+}
+function stopSpeaking() { if (window.speechSynthesis) speechSynthesis.cancel(); voice.speaking = ""; voice.pending = 0; }
+function bargeIn() { stopSpeaking(); if (voice.on) vstate("listening", "interrupted"); }
+function pickVoice() {
+  const vs = (window.speechSynthesis?.getVoices() || []).filter((x) => /^en[-_]US/i.test(x.lang));
+  return vs.find((x) => /Samantha|Ava|Allison|Zoe|Google US English/i.test(x.name)) || vs[0] || null;
+}
+function voiceTurnDone() {
+  if (!voice.on) return;
+  if (voice.queue) { const q = voice.queue; voice.queue = null; vstate("processing"); ask(q.text, { clientTurnId: q.id, voice: true }); return; }
+  if (voice.state === "processing") vstate("listening");
+}
+// --- server speech-to-text path: Silero VAD in the browser decides when the user has finished speaking
+const loadScript = (src) => new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error(`load ${src}`)); document.head.append(s); });
+const ORT = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/";
+const VADJS = "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.31/dist/";
+async function startVAD() {
+  try {
+    if (!window.vad) { await loadScript(ORT + "ort.wasm.min.js"); await loadScript(VADJS + "bundle.min.js"); }
+    voice.vad = await window.vad.MicVAD.new({
+      model: "v5", baseAssetPath: VADJS, onnxWASMBasePath: ORT, redemptionMs: 600, minSpeechMs: 300,
+      onSpeechRealStart: () => { if (voice.state === "speaking") bargeIn(); vtranscript("…", false); },
+      onSpeechEnd: (audio) => transcribeUtterance(audio),
+    });
+    voice.vad.start(); voice.mode = "server";
+    vstate("listening", `speech-to-text: ${voice.cfg.stt_model}`);
+    return true;
+  } catch (err) { console.warn("VAD unavailable; using browser recognition", err); return false; }
+}
+async function transcribeUtterance(audio) {
+  if (audio.length < 16000 * 0.4) return;                      // < 0.4 s: a click or cough, not a question
+  const id = `vad-${Date.now().toString(36)}`;
+  const body = encodeWAV(audio, 16000);
+  vstate(state.running ? "processing" : "processing", "transcribing");
+  for (let attempt = 0; attempt < 2; attempt++) {             // same utterance id: the server never transcribes twice
+    try {
+      const r = await fetch("/api/voice/transcribe", { method: "POST", headers: { "Content-Type": "audio/wav", "X-Utterance-Id": id }, body });
+      if (!r.ok) throw new Error(`${r.status}`);
+      const j = await r.json();
+      if (j.text) onUtterance(j.text, id); else vstate("listening");
+      return;
+    } catch (e) { vstate("disconnected", "speech-to-text failed"); await new Promise((res) => setTimeout(res, 800)); }
+  }
+  vstate("listening", "please repeat, or type");
+}
+function encodeWAV(samples, rate) {
+  const buf = new ArrayBuffer(44 + samples.length * 2), v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + samples.length * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) { const x = Math.max(-1, Math.min(1, samples[i])); v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true); }
+  return new Blob([buf], { type: "audio/wav" });
+}
+function toggleMic() { voice.on ? voiceStop() : voiceStart(); }
+window.__voice = { onUtterance, bargeIn, speakAnswer, stopSpeaking, isEcho, state: () => voice.state, get: () => voice,   // test hooks
+  start: () => { voice.on = true; $("#voiceBar").hidden = false; vstate("listening"); },
+  disconnect: () => { vstate("disconnected", "simulated"); setTimeout(() => voice.on && vstate("listening"), 300); } };
 
 // ---------------------------------------------------------------- wiring
 function closeDrawers() { $("#rail").classList.remove("open"); }
@@ -533,6 +657,9 @@ $("#input").addEventListener("input", autosize);
 $("#input").addEventListener("keydown", (ev) => { if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); $("#form").requestSubmit(); } });
 $("#newBtn").addEventListener("click", () => { state.conv = null; $("#convTitle").textContent = "New analysis"; renderEmpty(); loadConvs(); closeDrawers(); emptyPane("Click any value, chart mark or evidence row to inspect its provenance."); });
 $("#micBtn").addEventListener("click", toggleMic);
+$("#voiceStopAudio").addEventListener("click", bargeIn);
+$("#voiceEnd").addEventListener("click", voiceStop);
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && voice.speaking) bargeIn(); });
 $("#menuBtn").addEventListener("click", () => $("#rail").classList.toggle("open"));
 $("#inspBtn").addEventListener("click", () => $("#inspector").classList.toggle("open"));
 $("#inspClose").addEventListener("click", () => $("#inspector").classList.remove("open"));

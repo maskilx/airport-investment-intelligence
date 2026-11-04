@@ -55,6 +55,7 @@ NOT_IN_DATA = [   # topics the internal datasets do not measure -> say so instea
 ]
 THRESHOLD = re.compile(r"\b(\d{3,5})\s*-?\s*(?:mi\b|miles?\b)", re.I)
 BOUND_LH = re.compile(r"\b(A\d+): [^;\n]*\[binds long_haul_share\.min_miles = (\d+)\]")
+LIVE = re.compile(r"\b(right now|now|currently|today|at the moment|live)\b", re.I)
 CORRECTION = re.compile(r"\b(actually|i meant|instead|not .* but|rather|correction|i mean)\b", re.I)
 REFERENCE = re.compile(r"\b(that|this|those|these|same|it|its|them|their|earlier|previous|before|first one|second one|"
                        r"the airport|the other)\b", re.I)
@@ -247,13 +248,24 @@ class OfflineBackend:
             if not specs:
                 return _text(f"[{LABEL}] I can run screening, congestion, long-haul, unmet-demand indicators, trends and "
                              "named metrics offline. This question needs the LLM backend (set AIRPORT_MODEL=gemini).")
-            return _calls([_tu("run_analysis", {"spec": s}) for s in specs])
+            calls = [_tu("run_analysis", {"spec": s}) for s in specs]
+            if intent == "congestion" and LIVE.search(q) and airports:      # "now / today": add the live FAA status
+                calls.append(_tu("live_airport_status", {"airports": airports}))
+            return _calls(calls)
         composes = [(u, r) for u, r in done if u["name"] == "compose_answer"]
         if composes:      # our own compose failed validation -> never show numbers; explain
             errs = (composes[-1][1] or {}).get("errors", []) if isinstance(composes[-1][1], dict) else []
             return _text(f"[{LABEL}] The answer draft did not pass grounding validation"
                          f"{' (details in the trace)' if errs else ''}; please rephrase.")
         ans = self._compose(intent, q, analyses, airports, region_label)
+        live = [r for u, r in done if u["name"] == "live_airport_status" and isinstance(r, dict) and r.get("id")]
+        for lv in live[:1]:
+            for line in [x for x in lv.get("lines", [])[1:] if x.split(":")[0] in airports][:4]:
+                ans.setdefault("claims", []).append({"kind": "external", "source": lv["id"], "quote": line,
+                                                     "text": f"Live FAA NAS Status for {line.split(':')[0]}"})
+            ans.setdefault("limitations", []).append(
+                "Live FAA status is current operational context from a public API, not part of the reproducible "
+                "dataset, and it does not change the historical indicators above.")
         if assumed:
             ans.setdefault("assumptions", []).insert(0, f"Assumed from context (say so if wrong): {assumed}.")
         return _calls([_tu("compose_answer", {"answer": ans})])
