@@ -1,0 +1,58 @@
+state_abr,state_name,state_fips,census_region,census_division
+AL,Alabama,01,South,East South Central
+AK,Alaska,02,West,Pacific
+AZ,Arizona,04,West,Mountain
+AR,Arkansas,05,South,West South Central
+CA,California,06,West,Pacific
+CO,Colorado,08,West,Mountain
+CT,Connecticut,09,Northeast,New England
+DE,Delaware,10,South,South Atlantic
+DC,District of Columbia,11,South,South Atlantic
+FL,Florida,12,South,South Atlantic
+GA,Georgia,13,South,South Atlantic
+HI,Hawaii,15,West,Pacific
+ID,Idaho,16,West,Mountain
+IL,Illinois,17,Midwest,East North Central
+IN,Indiana,18,Midwest,East North Central
+IA,Iowa,19,Midwest,West North Central
+KS,Kansas,20,Midwest,West North Central
+KY,Kentucky,21,South,East South Central
+LA,Louisiana,22,South,West South Central
+ME,Maine,23,Northeast,New England
+MD,Maryland,24,South,South Atlantic
+MA,Massachusetts,25,Northeast,New England
+MI,Michigan,26,Midwest,East North Central
+MN,Minnesota,27,Midwest,West North Central
+MS,Mississippi,28,South,East South Central
+MO,Missouri,29,Midwest,West North Central
+MT,Montana,30,West,Mountain
+NE,Nebraska,31,Midwest,West North Central
+NV,Nevada,32,West,Mountain
+NH,New Hampshire,33,Northeast,New England
+NJ,New Jersey,34,Northeast,Middle Atlantic
+NM,New Mexico,35,West,Mountain
+NY,New York,36,Northeast,Middle Atlantic
+NC,North Carolina,37,South,South Atlantic
+ND,North Dakota,38,Midwest,West North Central
+OH,Ohio,39,Midwest,East North Central
+OK,Oklahoma,40,South,West South Central
+OR,Oregon,41,West,Pacific
+PA,Pennsylvania,42,Northeast,Middle Atlantic
+RI,Rhode Island,44,Northeast,New England
+SC,South Carolina,45,South,South Atlantic
+SD,South Dakota,46,Midwest,West North Central
+TN,Tennessee,47,South,East South Central
+TX,Texas,48,South,West South Central
+UT,Utah,49,West,Mountain
+VT,Vermont,50,Northeast,New England
+VA,Virginia,51,South,South Atlantic
+WA,Washington,53,West,Pacific
+WV,West Virginia,54,South,South Atlantic
+WI,Wisconsin,55,Midwest,East North Central
+WY,Wyoming,56,West,Mountain
+PR,Puerto Rico,72,Territory,Territory
+VI,U.S. Virgin Islands,78,Territory,Territory
+GU,Guam,66,Territory,Territory
+AS,American Samoa,60,Territory,Territory
+MP,Northern Mariana Islands,69,Territory,Territory
+TT,U.S. Pacific Trust Territories and Possessions,,Territory,Territory

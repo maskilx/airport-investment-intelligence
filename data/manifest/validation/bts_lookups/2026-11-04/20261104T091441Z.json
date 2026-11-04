@@ -1,0 +1,116 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "bts_lookup",
+   "value": null
+  },
+  {
+   "detail": "49565 rows, expected [1000, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "bts_lookup",
+   "value": 49565
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:lookup",
+   "passed": true,
+   "severity": "error",
+   "table": "bts_lookup",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:code",
+   "passed": true,
+   "severity": "error",
+   "table": "bts_lookup",
+   "value": 0
+  },
+  {
+   "detail": "208 duplicated keys",
+   "name": "unique_key:lookup+code",
+   "passed": false,
+   "severity": "warning",
+   "table": "bts_lookup",
+   "value": 208
+  },
+  {
+   "detail": "6 codes, 0 duplicates",
+   "name": "lookup_present_unique:L_AIRCRAFT_CONFIG",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 6
+  },
+  {
+   "detail": "14 codes, 0 duplicates",
+   "name": "lookup_present_unique:L_SERVICE_CLASS",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 14
+  },
+  {
+   "detail": "6942 codes, 0 duplicates",
+   "name": "lookup_present_unique:L_AIRPORT",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 6942
+  },
+  {
+   "detail": "6918 codes, 0 duplicates",
+   "name": "lookup_present_unique:L_AIRPORT_ID",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 6918
+  },
+  {
+   "detail": "453 codes, 0 duplicates",
+   "name": "lookup_present_unique:L_AIRCRAFT_TYPE",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 453
+  }
+ ],
+ "period": "2026-11-04",
+ "row_counts": {
+  "bts_lookup": 49565
+ },
+ "rules_version": "1",
+ "schemas": {
+  "bts_lookup": [
+   [
+    "lookup",
+    "VARCHAR"
+   ],
+   [
+    "code",
+    "VARCHAR"
+   ],
+   [
+    "description",
+    "VARCHAR"
+   ]
+  ]
+ },
+ "source_id": "bts_lookups",
+ "status": "warn",
+ "vintage_id": "20261104T091441Z"
+}

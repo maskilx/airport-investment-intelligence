@@ -1,0 +1,279 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "oa_airport",
+   "value": null
+  },
+  {
+   "detail": "86336 rows, expected [50000, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "oa_airport",
+   "value": 86336
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:id",
+   "passed": true,
+   "severity": "error",
+   "table": "oa_airport",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:ident",
+   "passed": true,
+   "severity": "error",
+   "table": "oa_airport",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:id",
+   "passed": true,
+   "severity": "error",
+   "table": "oa_airport",
+   "value": 0
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "oa_runway",
+   "value": null
+  },
+  {
+   "detail": "48405 rows, expected [30000, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "oa_runway",
+   "value": 48405
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:id",
+   "passed": true,
+   "severity": "error",
+   "table": "oa_runway",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:airport_ref",
+   "passed": true,
+   "severity": "error",
+   "table": "oa_runway",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:id",
+   "passed": true,
+   "severity": "error",
+   "table": "oa_runway",
+   "value": 0
+  },
+  {
+   "detail": "873 US large/medium airports with IATA",
+   "name": "us_commercial_airports_present",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 873
+  },
+  {
+   "detail": "0 runways with unknown airport_ref",
+   "name": "runway_airport_fk",
+   "passed": true,
+   "severity": "warning",
+   "table": null,
+   "value": 0
+  }
+ ],
+ "period": "2026-11-04",
+ "row_counts": {
+  "oa_airport": 86336,
+  "oa_runway": 48405
+ },
+ "rules_version": "1",
+ "schemas": {
+  "oa_airport": [
+   [
+    "id",
+    "BIGINT"
+   ],
+   [
+    "ident",
+    "VARCHAR"
+   ],
+   [
+    "type",
+    "VARCHAR"
+   ],
+   [
+    "name",
+    "VARCHAR"
+   ],
+   [
+    "latitude_deg",
+    "DOUBLE"
+   ],
+   [
+    "longitude_deg",
+    "DOUBLE"
+   ],
+   [
+    "elevation_ft",
+    "INTEGER"
+   ],
+   [
+    "continent",
+    "VARCHAR"
+   ],
+   [
+    "iso_country",
+    "VARCHAR"
+   ],
+   [
+    "iso_region",
+    "VARCHAR"
+   ],
+   [
+    "municipality",
+    "VARCHAR"
+   ],
+   [
+    "scheduled_service",
+    "VARCHAR"
+   ],
+   [
+    "icao_code",
+    "VARCHAR"
+   ],
+   [
+    "iata_code",
+    "VARCHAR"
+   ],
+   [
+    "gps_code",
+    "VARCHAR"
+   ],
+   [
+    "local_code",
+    "VARCHAR"
+   ],
+   [
+    "home_link",
+    "VARCHAR"
+   ],
+   [
+    "wikipedia_link",
+    "VARCHAR"
+   ],
+   [
+    "keywords",
+    "VARCHAR"
+   ]
+  ],
+  "oa_runway": [
+   [
+    "id",
+    "BIGINT"
+   ],
+   [
+    "airport_ref",
+    "BIGINT"
+   ],
+   [
+    "airport_ident",
+    "VARCHAR"
+   ],
+   [
+    "length_ft",
+    "INTEGER"
+   ],
+   [
+    "width_ft",
+    "INTEGER"
+   ],
+   [
+    "surface",
+    "VARCHAR"
+   ],
+   [
+    "lighted",
+    "BOOLEAN"
+   ],
+   [
+    "closed",
+    "BOOLEAN"
+   ],
+   [
+    "le_ident",
+    "VARCHAR"
+   ],
+   [
+    "le_latitude_deg",
+    "VARCHAR"
+   ],
+   [
+    "le_longitude_deg",
+    "VARCHAR"
+   ],
+   [
+    "le_elevation_ft",
+    "VARCHAR"
+   ],
+   [
+    "le_heading_deg_t",
+    "VARCHAR"
+   ],
+   [
+    "le_displaced_threshold_ft",
+    "VARCHAR"
+   ],
+   [
+    "he_ident",
+    "VARCHAR"
+   ],
+   [
+    "he_latitude_deg",
+    "VARCHAR"
+   ],
+   [
+    "he_longitude_deg",
+    "VARCHAR"
+   ],
+   [
+    "he_elevation_ft",
+    "VARCHAR"
+   ],
+   [
+    "he_heading_deg_t",
+    "VARCHAR"
+   ],
+   [
+    "he_displaced_threshold_ft",
+    "VARCHAR"
+   ]
+  ]
+ },
+ "source_id": "ourairports",
+ "status": "pass",
+ "vintage_id": "20261104T091449Z"
+}

@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+# Rebuildable artifacts — never the source of truth
+data/db/
+data/tmp/
+.DS_Store

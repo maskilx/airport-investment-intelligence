@@ -1,0 +1,124 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "faa_enplanements",
+   "value": null
+  },
+  {
+   "detail": "503 rows, expected [50, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "faa_enplanements",
+   "value": 503
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:cy",
+   "passed": true,
+   "severity": "error",
+   "table": "faa_enplanements",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:locid",
+   "passed": true,
+   "severity": "error",
+   "table": "faa_enplanements",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:cy+locid",
+   "passed": true,
+   "severity": "error",
+   "table": "faa_enplanements",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative_values",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 0
+  }
+ ],
+ "period": "2015",
+ "row_counts": {
+  "faa_enplanements": 503
+ },
+ "rules_version": "1",
+ "schemas": {
+  "faa_enplanements": [
+   [
+    "rank",
+    "BIGINT"
+   ],
+   [
+    "ro",
+    "VARCHAR"
+   ],
+   [
+    "st",
+    "VARCHAR"
+   ],
+   [
+    "locid",
+    "VARCHAR"
+   ],
+   [
+    "city",
+    "VARCHAR"
+   ],
+   [
+    "airport_name",
+    "VARCHAR"
+   ],
+   [
+    "s_l",
+    "VARCHAR"
+   ],
+   [
+    "hub",
+    "VARCHAR"
+   ],
+   [
+    "value_cy",
+    "DOUBLE"
+   ],
+   [
+    "value_prior_cy",
+    "DOUBLE"
+   ],
+   [
+    "pct_change",
+    "DOUBLE"
+   ],
+   [
+    "cy",
+    "INTEGER"
+   ],
+   [
+    "measure",
+    "VARCHAR"
+   ]
+  ]
+ },
+ "source_id": "faa_enplanements",
+ "status": "pass",
+ "vintage_id": "20261104T091454Z"
+}

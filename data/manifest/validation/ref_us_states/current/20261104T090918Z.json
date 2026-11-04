@@ -1,0 +1,76 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_us_state",
+   "value": null
+  },
+  {
+   "detail": "57 rows, expected [50, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_us_state",
+   "value": 57
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:state_abr",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_us_state",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:state_abr",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_us_state",
+   "value": 0
+  }
+ ],
+ "period": "current",
+ "row_counts": {
+  "ref_us_state": 57
+ },
+ "rules_version": "1",
+ "schemas": {
+  "ref_us_state": [
+   [
+    "state_abr",
+    "VARCHAR"
+   ],
+   [
+    "state_name",
+    "VARCHAR"
+   ],
+   [
+    "state_fips",
+    "VARCHAR"
+   ],
+   [
+    "census_region",
+    "VARCHAR"
+   ],
+   [
+    "census_division",
+    "VARCHAR"
+   ]
+  ]
+ },
+ "source_id": "ref_us_states",
+ "status": "pass",
+ "vintage_id": "20261104T090918Z"
+}

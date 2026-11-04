@@ -1,0 +1,368 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": null
+  },
+  {
+   "detail": "47965 rows, expected [25000, 150000]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 47965
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:year",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:month",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:origin",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:dest",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:unique_carrier",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:origin_airport_id",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:dest_airport_id",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:departures_performed",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:seats",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:passengers",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:freight",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:distance",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 0
+  },
+  {
+   "detail": "0 rows outside 2025-10 (incl. NULL)",
+   "name": "period_matches_content",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 0
+  },
+  {
+   "detail": "328 rows with origin = dest (excluded in v_t100_segment)",
+   "name": "self_loop_rows",
+   "passed": false,
+   "severity": "warning",
+   "table": null,
+   "value": 328
+  },
+  {
+   "detail": "7 rows with passengers > seats",
+   "name": "passengers_le_seats",
+   "passed": false,
+   "severity": "warning",
+   "table": null,
+   "value": 7
+  },
+  {
+   "detail": "0 rows with unknown aircraft_config",
+   "name": "aircraft_config_domain",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 0
+  }
+ ],
+ "period": "2025-10",
+ "row_counts": {
+  "t100_segment": 47965
+ },
+ "rules_version": "1",
+ "schemas": {
+  "t100_segment": [
+   [
+    "departures_scheduled",
+    "DOUBLE"
+   ],
+   [
+    "departures_performed",
+    "DOUBLE"
+   ],
+   [
+    "payload",
+    "DOUBLE"
+   ],
+   [
+    "seats",
+    "DOUBLE"
+   ],
+   [
+    "passengers",
+    "DOUBLE"
+   ],
+   [
+    "freight",
+    "DOUBLE"
+   ],
+   [
+    "mail",
+    "DOUBLE"
+   ],
+   [
+    "distance",
+    "DOUBLE"
+   ],
+   [
+    "ramp_to_ramp",
+    "DOUBLE"
+   ],
+   [
+    "air_time",
+    "DOUBLE"
+   ],
+   [
+    "unique_carrier",
+    "VARCHAR"
+   ],
+   [
+    "airline_id",
+    "INTEGER"
+   ],
+   [
+    "unique_carrier_name",
+    "VARCHAR"
+   ],
+   [
+    "unique_carrier_entity",
+    "VARCHAR"
+   ],
+   [
+    "region",
+    "VARCHAR"
+   ],
+   [
+    "carrier",
+    "VARCHAR"
+   ],
+   [
+    "carrier_name",
+    "VARCHAR"
+   ],
+   [
+    "carrier_group",
+    "BIGINT"
+   ],
+   [
+    "carrier_group_new",
+    "BIGINT"
+   ],
+   [
+    "origin_airport_id",
+    "INTEGER"
+   ],
+   [
+    "origin_airport_seq_id",
+    "BIGINT"
+   ],
+   [
+    "origin_city_market_id",
+    "BIGINT"
+   ],
+   [
+    "origin",
+    "VARCHAR"
+   ],
+   [
+    "origin_city_name",
+    "VARCHAR"
+   ],
+   [
+    "origin_state_abr",
+    "VARCHAR"
+   ],
+   [
+    "origin_state_fips",
+    "VARCHAR"
+   ],
+   [
+    "origin_state_nm",
+    "VARCHAR"
+   ],
+   [
+    "origin_country",
+    "VARCHAR"
+   ],
+   [
+    "origin_country_name",
+    "VARCHAR"
+   ],
+   [
+    "origin_wac",
+    "BIGINT"
+   ],
+   [
+    "dest_airport_id",
+    "INTEGER"
+   ],
+   [
+    "dest_airport_seq_id",
+    "BIGINT"
+   ],
+   [
+    "dest_city_market_id",
+    "BIGINT"
+   ],
+   [
+    "dest",
+    "VARCHAR"
+   ],
+   [
+    "dest_city_name",
+    "VARCHAR"
+   ],
+   [
+    "dest_state_abr",
+    "VARCHAR"
+   ],
+   [
+    "dest_state_fips",
+    "VARCHAR"
+   ],
+   [
+    "dest_state_nm",
+    "VARCHAR"
+   ],
+   [
+    "dest_country",
+    "VARCHAR"
+   ],
+   [
+    "dest_country_name",
+    "VARCHAR"
+   ],
+   [
+    "dest_wac",
+    "BIGINT"
+   ],
+   [
+    "aircraft_group",
+    "INTEGER"
+   ],
+   [
+    "aircraft_type",
+    "VARCHAR"
+   ],
+   [
+    "aircraft_config",
+    "INTEGER"
+   ],
+   [
+    "year",
+    "INTEGER"
+   ],
+   [
+    "quarter",
+    "INTEGER"
+   ],
+   [
+    "month",
+    "INTEGER"
+   ],
+   [
+    "distance_group",
+    "BIGINT"
+   ],
+   [
+    "class",
+    "VARCHAR"
+   ],
+   [
+    "data_source",
+    "VARCHAR"
+   ]
+  ]
+ },
+ "source_id": "bts_t100_segment",
+ "status": "warn",
+ "vintage_id": "20261104T092541Z"
+}

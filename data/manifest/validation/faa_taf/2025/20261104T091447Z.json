@@ -1,0 +1,472 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_airport",
+   "value": null
+  },
+  {
+   "detail": "3319 rows, expected [1000, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_airport",
+   "value": 3319
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:locid",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_airport",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:locid",
+   "passed": true,
+   "severity": "warning",
+   "table": "taf_airport",
+   "value": 0
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_operations",
+   "value": null
+  },
+  {
+   "detail": "209911 rows, expected [1000, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_operations",
+   "value": 209911
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:locid",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_operations",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:locid+scenario+fiscal_year",
+   "passed": true,
+   "severity": "warning",
+   "table": "taf_operations",
+   "value": 0
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_enplanements",
+   "value": null
+  },
+  {
+   "detail": "223940 rows, expected [1000, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_enplanements",
+   "value": 223940
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:locid",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_enplanements",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:locid+scenario+fiscal_year",
+   "passed": true,
+   "severity": "warning",
+   "table": "taf_enplanements",
+   "value": 0
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_based_aircraft",
+   "value": null
+  },
+  {
+   "detail": "228024 rows, expected [1000, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_based_aircraft",
+   "value": 228024
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:locid",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_based_aircraft",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:locid+scenario+fiscal_year",
+   "passed": true,
+   "severity": "warning",
+   "table": "taf_based_aircraft",
+   "value": 0
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_tracon",
+   "value": null
+  },
+  {
+   "detail": "125447 rows, expected [1000, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_tracon",
+   "value": 125447
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:locid",
+   "passed": true,
+   "severity": "error",
+   "table": "taf_tracon",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:locid+scenario+fiscal_year",
+   "passed": true,
+   "severity": "warning",
+   "table": "taf_tracon",
+   "value": 0
+  },
+  {
+   "detail": "max fiscal_year 2055",
+   "name": "forecast_horizon",
+   "passed": true,
+   "severity": "warning",
+   "table": null,
+   "value": 2055
+  },
+  {
+   "detail": "historical max FY=2024, forecast min FY=2025, other codes=0",
+   "name": "scenario_split:taf_enplanements",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": [
+    2024,
+    2025,
+    0
+   ]
+  },
+  {
+   "detail": "historical max FY=2024, forecast min FY=2025, other codes=0",
+   "name": "scenario_split:taf_operations",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": [
+    2024,
+    2025,
+    0
+   ]
+  }
+ ],
+ "period": "2025",
+ "row_counts": {
+  "taf_airport": 3319,
+  "taf_based_aircraft": 228024,
+  "taf_enplanements": 223940,
+  "taf_operations": 209911,
+  "taf_tracon": 125447
+ },
+ "rules_version": "1",
+ "schemas": {
+  "taf_airport": [
+   [
+    "locid",
+    "VARCHAR"
+   ],
+   [
+    "region",
+    "VARCHAR"
+   ],
+   [
+    "aport_name",
+    "VARCHAR"
+   ],
+   [
+    "city",
+    "VARCHAR"
+   ],
+   [
+    "state",
+    "VARCHAR"
+   ],
+   [
+    "site",
+    "VARCHAR"
+   ],
+   [
+    "naspno",
+    "VARCHAR"
+   ],
+   [
+    "latitude",
+    "VARCHAR"
+   ],
+   [
+    "longitude",
+    "VARCHAR"
+   ],
+   [
+    "fac_class",
+    "BIGINT"
+   ],
+   [
+    "fac_level",
+    "BIGINT"
+   ],
+   [
+    "atct_flag",
+    "BIGINT"
+   ],
+   [
+    "published",
+    "BIGINT"
+   ],
+   [
+    "ser_vol",
+    "BIGINT"
+   ],
+   [
+    "hub_size",
+    "BIGINT"
+   ],
+   [
+    "hub_locid",
+    "VARCHAR"
+   ],
+   [
+    "reliver",
+    "BIGINT"
+   ],
+   [
+    "re_arpt_id",
+    "VARCHAR"
+   ],
+   [
+    "center_id",
+    "VARCHAR"
+   ],
+   [
+    "iops_id",
+    "VARCHAR"
+   ],
+   [
+    "tr_primary",
+    "BIGINT"
+   ],
+   [
+    "ops_flag",
+    "BIGINT"
+   ],
+   [
+    "iops_noadd",
+    "BIGINT"
+   ],
+   [
+    "reg_input",
+    "BIGINT"
+   ],
+   [
+    "reg_syear",
+    "VARCHAR"
+   ],
+   [
+    "reg_eyear",
+    "VARCHAR"
+   ],
+   [
+    "oep35",
+    "BIGINT"
+   ]
+  ],
+  "taf_based_aircraft": [
+   [
+    "locid",
+    "VARCHAR"
+   ],
+   [
+    "scenario",
+    "BIGINT"
+   ],
+   [
+    "fiscal_year",
+    "BIGINT"
+   ],
+   [
+    "single",
+    "BIGINT"
+   ],
+   [
+    "jet",
+    "BIGINT"
+   ],
+   [
+    "multi",
+    "BIGINT"
+   ],
+   [
+    "helo",
+    "BIGINT"
+   ],
+   [
+    "other",
+    "BIGINT"
+   ]
+  ],
+  "taf_enplanements": [
+   [
+    "locid",
+    "VARCHAR"
+   ],
+   [
+    "scenario",
+    "BIGINT"
+   ],
+   [
+    "fiscal_year",
+    "BIGINT"
+   ],
+   [
+    "aac",
+    "BIGINT"
+   ],
+   [
+    "aat",
+    "BIGINT"
+   ],
+   [
+    "commuter",
+    "BIGINT"
+   ],
+   [
+    "us_flag",
+    "BIGINT"
+   ],
+   [
+    "frgn_flag",
+    "BIGINT"
+   ]
+  ],
+  "taf_operations": [
+   [
+    "locid",
+    "VARCHAR"
+   ],
+   [
+    "scenario",
+    "BIGINT"
+   ],
+   [
+    "fiscal_year",
+    "BIGINT"
+   ],
+   [
+    "itn_ac",
+    "BIGINT"
+   ],
+   [
+    "itn_at",
+    "BIGINT"
+   ],
+   [
+    "itn_ga",
+    "BIGINT"
+   ],
+   [
+    "itn_mil",
+    "BIGINT"
+   ],
+   [
+    "loc_ga",
+    "BIGINT"
+   ],
+   [
+    "loc_mil",
+    "BIGINT"
+   ],
+   [
+    "tot_overs",
+    "BIGINT"
+   ]
+  ],
+  "taf_tracon": [
+   [
+    "locid",
+    "VARCHAR"
+   ],
+   [
+    "scenario",
+    "BIGINT"
+   ],
+   [
+    "fiscal_year",
+    "BIGINT"
+   ],
+   [
+    "tr_ac",
+    "BIGINT"
+   ],
+   [
+    "tr_at",
+    "BIGINT"
+   ],
+   [
+    "tr_ga",
+    "BIGINT"
+   ],
+   [
+    "tr_mil",
+    "BIGINT"
+   ],
+   [
+    "tot_overs",
+    "BIGINT"
+   ]
+  ]
+ },
+ "source_id": "faa_taf",
+ "status": "pass",
+ "vintage_id": "20261104T091447Z"
+}

@@ -1,0 +1,30 @@
+# Default acquisition plan used by `python -m airport_data fetch --all-default`.
+# Periods: "latest" | "available" | "START:END" | "p1,p2,..."
+# Changing scope = editing this file; no code changes.
+
+[sources.bts_t100_segment]
+periods = "2024-01:2026-07"          # 31 months: two full CYs (YoY, FAA cross-check) + latest
+
+[sources.bts_ontime]
+periods = "2025-11,2026-02,2026-05,2026-08"   # one month per season (weather/peaking differ); ~32 MB each
+
+[sources.bts_lookups]
+periods = "latest"
+
+[sources.faa_enplanements]
+periods = "latest"                    # CY2025 workbook also carries CY2024
+
+[sources.faa_cargo]
+periods = "latest"
+
+[sources.faa_taf]
+periods = "latest"
+
+[sources.ourairports]
+periods = "latest"
+
+[sources.ref_us_states]
+periods = "current"
+
+[sources.curated_constraints]
+periods = "current"

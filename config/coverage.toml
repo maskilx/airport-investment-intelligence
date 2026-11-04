@@ -1,0 +1,169 @@
+# Coverage requirements for the data foundation. Generic: populations / periods / fields,
+# not specific questions or airports. Tightening or adding requirements = edit this file.
+
+# ---------------------------------------------------------------- time coverage
+[[requirement]]
+id = "t100_24_contiguous_months"
+type = "contiguous_months"
+source_id = "bts_t100_segment"
+min_months = 24
+purpose = "YoY growth and 12-month rolling metrics for any airport/route"
+
+[[requirement]]
+id = "t100_full_cy2025"
+type = "sql_assert"
+sql = """SELECT count(DISTINCT month) = 12, 'CY2025 months present: ' || count(DISTINCT month)
+         FROM t100_segment WHERE year = 2025"""
+purpose = "Calendar-year totals comparable to FAA CY2025 enplanements"
+
+[[requirement]]
+id = "ontime_multi_season"
+type = "sql_assert"
+sql = """SELECT count(DISTINCT CASE WHEN month IN (12,1,2) THEN 'winter' WHEN month IN (3,4,5) THEN 'spring'
+                 WHEN month IN (6,7,8) THEN 'summer' ELSE 'fall' END) >= 3,
+                'seasons covered: ' || string_agg(DISTINCT CAST(year AS VARCHAR) || '-' || lpad(CAST(month AS VARCHAR),2,'0'), ', ')
+         FROM ontime_flight"""
+purpose = "Congestion/delay metrics not biased to a single season"
+
+[[requirement]]
+id = "taf_forecast_horizon_20y"
+type = "sql_assert"
+sql = """SELECT max(fiscal_year) - min(fiscal_year) FILTER (WHERE record_type = 'forecast') >= 20,
+                'forecast FY ' || min(fiscal_year) FILTER (WHERE record_type = 'forecast') || '..' || max(fiscal_year)
+         FROM v_taf_enplanements"""
+purpose = "Long-horizon demand context for expansion questions"
+
+# ---------------------------------------------------------------- population coverage
+[[requirement]]
+id = "faa_hubs_in_t100"
+type = "population_covered"
+population_sql = "SELECT coalesce(CAST(airport_id AS VARCHAR), 'unmapped LID ' || locid) FROM v_faa_enplanements_annual WHERE cy = 2025 AND hub IN ('L','M','S')"
+covered_sql = "SELECT CAST(origin_airport_id AS VARCHAR) FROM t100_segment WHERE year = 2025 AND departures_performed > 0"
+min_share = 0.98
+purpose = "Every large/medium/small hub has traffic & capacity data (FAA LID ~ IATA for hubs)"
+
+[[requirement]]
+id = "faa_commercial_airports_in_t100"
+type = "population_covered"
+population_sql = "SELECT coalesce(CAST(airport_id AS VARCHAR), 'unmapped LID ' || locid) FROM v_faa_enplanements_annual WHERE cy = 2025 AND enplanements >= 10000"
+covered_sql = "SELECT CAST(origin_airport_id AS VARCHAR) FROM t100_segment WHERE year = 2025 AND departures_performed > 0"
+min_share = 0.90
+purpose = "Primary airports (>=10k enplanements) broadly covered, incl. non-hubs"
+
+[[requirement]]
+id = "faa_hubs_in_taf"
+type = "population_covered"
+population_sql = "SELECT coalesce(CAST(airport_id AS VARCHAR), 'unmapped LID ' || locid) FROM v_faa_enplanements_annual WHERE cy = 2025 AND hub IN ('L','M','S','N')"
+covered_sql = "SELECT CAST(airport_id AS VARCHAR) FROM v_taf_enplanements WHERE record_type = 'forecast' AND fiscal_year = 2030"
+min_share = 0.98
+purpose = "Forecast available for every commercial-service hub"
+
+[[requirement]]
+id = "faa_large_medium_hubs_in_ontime"
+type = "population_covered"
+population_sql = "SELECT coalesce(CAST(airport_id AS VARCHAR), 'unmapped LID ' || locid) FROM v_faa_enplanements_annual WHERE cy = 2025 AND hub IN ('L','M')"
+covered_sql = "SELECT CAST(origin_airport_id AS VARCHAR) FROM ontime_flight"
+min_share = 0.95
+purpose = "Delay/taxi metrics available at all large & medium hubs (known gap: small airports, AK/HI)"
+
+[[requirement]]
+id = "t100_us_passengers_resolve_to_located_airport"
+type = "sql_assert"
+sql = """SELECT sum(t.passengers) FILTER (WHERE d.latitude_deg IS NOT NULL) / sum(t.passengers) >= 0.999,
+                'share of US-origin passengers whose airport has coordinates/state: ' ||
+                round(100 * sum(t.passengers) FILTER (WHERE d.latitude_deg IS NOT NULL) / sum(t.passengers), 3) || '%; unlocated airports: ' ||
+                count(DISTINCT t.origin_airport_id) FILTER (WHERE d.latitude_deg IS NULL)
+         FROM t100_segment t LEFT JOIN dim_airport d ON d.airport_id = t.origin_airport_id
+         WHERE t.origin_country = 'US' AND t.year = 2025"""
+purpose = "Traffic resolves to the airport dimension (coords, state, runways), passenger-weighted"
+
+[[requirement]]
+id = "faa_lids_resolve_to_bts_airport_id"
+type = "population_covered"
+population_sql = "SELECT locid FROM v_faa_enplanements_annual WHERE cy = 2025 AND hub IN ('L','M','S','N')"
+covered_sql = "SELECT faa_lid FROM xref_faa_lid"
+min_share = 0.98
+purpose = "FAA-keyed tables (enplanements, cargo, TAF) join to BTS airport_id despite LID/IATA differences"
+
+[[requirement]]
+id = "dim_airport_hubs_have_geo_and_runways"
+type = "field_completeness"
+table = "(SELECT d.* FROM dim_airport d JOIN dim_airport_faa f USING (airport_id) WHERE f.faa_hub_class IN ('L','M','S'))"
+columns = ["state_abr", "census_division", "latitude_deg", "longitude_deg", "runways_open", "longest_runway_ft"]
+max_null_rate = 0.0
+purpose = "Region filters (e.g. any Census division) and runway inventory for every hub"
+
+# ---------------------------------------------------------------- field completeness
+[[requirement]]
+id = "t100_core_fields_complete"
+type = "field_completeness"
+table = "t100_segment"
+columns = ["origin", "dest", "departures_performed", "seats", "passengers", "freight", "distance", "aircraft_config", "class", "origin_country", "dest_country"]
+max_null_rate = 0.0
+purpose = "Capacity, traffic, distance and service-type splits computable on every row"
+
+[[requirement]]
+id = "ontime_operated_flights_have_times"
+type = "field_completeness"
+table = "ontime_flight"
+columns = ["dep_delay", "taxi_out", "crs_dep_time"]
+where = "cancelled = 0 AND diverted = 0"
+max_null_rate = 0.001
+purpose = "Delay and taxi-out metrics computable for operated flights"
+
+[[requirement]]
+id = "ontime_delay_causes_on_late_flights"
+type = "field_completeness"
+table = "ontime_flight"
+columns = ["carrier_delay", "weather_delay", "nas_delay", "security_delay", "late_aircraft_delay"]
+where = "arr_del15 = 1 AND cancelled = 0 AND diverted = 0"
+max_null_rate = 0.001
+purpose = "Delay-cause attribution (NAS/weather share) available on late flights"
+
+[[requirement]]
+id = "t100_has_service_type_split"
+type = "sql_assert"
+sql = """SELECT count(DISTINCT service_type) FILTER (WHERE service_type IN ('passenger','freight')) = 2
+                AND count(*) FILTER (WHERE aircraft_config_desc IS NULL) = 0,
+                'service types: ' || string_agg(DISTINCT service_type, ',') || '; undecoded configs: ' ||
+                count(*) FILTER (WHERE aircraft_config_desc IS NULL)
+         FROM v_t100_segment"""
+purpose = "Passenger vs cargo flying separable via decoded AIRCRAFT_CONFIG"
+
+[[requirement]]
+id = "t100_international_segments_present"
+type = "sql_assert"
+sql = """SELECT count(*) FILTER (WHERE is_international) > 10000 AND count(DISTINCT unique_carrier) FILTER (WHERE data_source LIKE '%F') > 50,
+                count(*) FILTER (WHERE is_international) || ' intl rows; ' ||
+                count(DISTINCT unique_carrier) FILTER (WHERE data_source LIKE '%F') || ' foreign carriers'
+         FROM v_t100_segment"""
+purpose = "All-carriers table (not US-domestic-only) — international & foreign-carrier flying included"
+
+[[requirement]]
+id = "curated_constraints_cited"
+type = "sql_assert"
+sql = """SELECT count(*) FILTER (WHERE coalesce(source_url,'') = '' OR coalesce(verification,'') = '') = 0,
+                count(*) || ' rows; verified=' || count(*) FILTER (WHERE verification LIKE 'verified%') ||
+                ' unverified=' || count(*) FILTER (WHERE verification LIKE 'unverified%')
+         FROM curated_constraint"""
+purpose = "Every curated fact carries a citation and an explicit verification status"
+
+[[requirement]]
+id = "no_stale_or_missing_sources"
+type = "sql_assert"
+sql = """SELECT count(*) FILTER (WHERE freshness <> 'OK') = 0,
+                coalesce(string_agg(source_id || '=' || freshness, ', ') FILTER (WHERE freshness <> 'OK'), 'all OK')
+         FROM v_source_freshness"""
+purpose = "Freshness is measured, and staleness is visible rather than silent"
+
+[[requirement]]
+id = "taf_total_consistent_with_faa_boardings"
+type = "sql_assert"
+sql = """WITH t AS (SELECT airport_id, total_enplanements FROM v_taf_enplanements WHERE fiscal_year = 2024),
+              f AS (SELECT airport_id, enplanements FROM v_faa_enplanements_annual WHERE cy = 2024 AND enplanements > 1e6)
+         SELECT avg(CASE WHEN abs(total_enplanements / enplanements - 1) <= 0.05 THEN 1 ELSE 0 END) >= 0.9,
+                'airports >1M within 5% (TAF FY2024 total vs FAA CY2024): ' ||
+                round(100 * avg(CASE WHEN abs(total_enplanements / enplanements - 1) <= 0.05 THEN 1 ELSE 0 END), 1) ||
+                '% of ' || count(*) || '; median ratio ' || round(median(total_enplanements / enplanements), 3)
+         FROM t JOIN f USING (airport_id)"""
+purpose = "Semantic check: TAF total = domestic + international columns (guards column-meaning errors)"

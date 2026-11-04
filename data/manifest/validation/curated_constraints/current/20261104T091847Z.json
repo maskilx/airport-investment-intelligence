@@ -1,0 +1,140 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "curated_constraint",
+   "value": null
+  },
+  {
+   "detail": "31 rows, expected [1, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "curated_constraint",
+   "value": 31
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:airport_iata",
+   "passed": true,
+   "severity": "error",
+   "table": "curated_constraint",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:category",
+   "passed": true,
+   "severity": "error",
+   "table": "curated_constraint",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:item",
+   "passed": true,
+   "severity": "error",
+   "table": "curated_constraint",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:source_url",
+   "passed": true,
+   "severity": "error",
+   "table": "curated_constraint",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:verification",
+   "passed": true,
+   "severity": "error",
+   "table": "curated_constraint",
+   "value": 0
+  }
+ ],
+ "period": "current",
+ "row_counts": {
+  "curated_constraint": 31
+ },
+ "rules_version": "1",
+ "schemas": {
+  "curated_constraint": [
+   [
+    "airport_iata",
+    "VARCHAR"
+   ],
+   [
+    "category",
+    "VARCHAR"
+   ],
+   [
+    "item",
+    "VARCHAR"
+   ],
+   [
+    "value",
+    "VARCHAR"
+   ],
+   [
+    "unit",
+    "VARCHAR"
+   ],
+   [
+    "effective_from",
+    "VARCHAR"
+   ],
+   [
+    "effective_to",
+    "VARCHAR"
+   ],
+   [
+    "status",
+    "VARCHAR"
+   ],
+   [
+    "source_title",
+    "VARCHAR"
+   ],
+   [
+    "source_url",
+    "VARCHAR"
+   ],
+   [
+    "source_published",
+    "VARCHAR"
+   ],
+   [
+    "evidence_quote",
+    "VARCHAR"
+   ],
+   [
+    "retrieved_at",
+    "VARCHAR"
+   ],
+   [
+    "review_by",
+    "VARCHAR"
+   ],
+   [
+    "verification",
+    "VARCHAR"
+   ]
+  ]
+ },
+ "source_id": "curated_constraints",
+ "status": "pass",
+ "vintage_id": "20261104T091847Z"
+}
