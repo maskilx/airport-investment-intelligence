@@ -17,7 +17,9 @@ from __future__ import annotations
 import json
 import math
 import re
+import functools
 import sqlite3
+import threading
 import time
 from collections import Counter
 from dataclasses import asdict, dataclass, field
@@ -47,53 +49,74 @@ CREATE TABLE IF NOT EXISTS traces (conv_id TEXT, turn INTEGER, body TEXT, create
 """
 
 
+def _locked(fn):
+    @functools.wraps(fn)
+    def w(self, *a, **k):
+        with self.lock:
+            return fn(self, *a, **k)
+    return w
+
+
 class ConversationStore:
+    """One SQLite file for all conversations. Thread-safe (a single connection guarded by a lock)."""
+
     def __init__(self, path: str | Path):
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(str(self.path), check_same_thread=False)
+        self.lock = threading.RLock()
+        if str(path) != ":memory:":
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.db = sqlite3.connect(str(path), check_same_thread=False)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.executescript(SCHEMA)
 
     # conversations
+    @_locked
     def create(self, conv_id: str, title: str = "") -> None:
         now = time.time()
         self.db.execute("INSERT OR IGNORE INTO conversations VALUES (?,?,?,?)", (conv_id, title, now, now))
         self.db.commit()
 
+    @_locked
     def list(self) -> list[dict]:
         rows = self.db.execute("SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC").fetchall()
         return [dict(zip(("id", "title", "created_at", "updated_at"), r)) for r in rows]
 
+    @_locked
     def set_title(self, conv_id: str, title: str) -> None:
         self.db.execute("UPDATE conversations SET title = ? WHERE id = ? AND (title IS NULL OR title = '')", (title, conv_id))
         self.db.commit()
 
+    @_locked
     def touch(self, conv_id: str) -> None:
         self.db.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (time.time(), conv_id))
         self.db.commit()
 
     # transcript
+    @_locked
     def append(self, conv_id: str, turn: int, role: str, content: Any) -> None:
         seq = self.db.execute("SELECT coalesce(max(seq), -1) + 1 FROM messages WHERE conv_id = ?", (conv_id,)).fetchone()[0]
         body = json.dumps(content, default=str)
         self.db.execute("INSERT INTO messages VALUES (?,?,?,?,?,?,?)", (conv_id, seq, turn, role, body, est_tokens(body), time.time()))
         self.db.commit()
 
+    @_locked
     def messages(self, conv_id: str) -> list[dict]:
         rows = self.db.execute("SELECT seq, turn, role, content, tokens FROM messages WHERE conv_id = ? ORDER BY seq", (conv_id,)).fetchall()
         return [{"seq": s, "turn": t, "role": r, "content": json.loads(c), "tokens": k} for s, t, r, c, k in rows]
 
+    @_locked
     def last_turn(self, conv_id: str) -> int:
         return self.db.execute("SELECT coalesce(max(turn), 0) FROM messages WHERE conv_id = ?", (conv_id,)).fetchone()[0]
 
     # evidence
+    @_locked
     def save_findings(self, conv_id: str, store: EvidenceStore) -> None:
         for f in store.all():
             self.db.execute("INSERT OR IGNORE INTO findings VALUES (?,?,?,?)",
                             (conv_id, f.id, int(f.id[1:]), json.dumps(f.to_dict(), default=str)))
         self.db.commit()
 
+    @_locked
     def load_findings(self, conv_id: str) -> EvidenceStore:
         st = EvidenceStore()
         for (body,) in self.db.execute("SELECT body FROM findings WHERE conv_id = ? ORDER BY n", (conv_id,)).fetchall():
@@ -104,29 +127,35 @@ class ConversationStore:
         return st
 
     # state & summaries & traces
+    @_locked
     def load_state(self, conv_id: str) -> "ConversationState":
         r = self.db.execute("SELECT body FROM state WHERE conv_id = ?", (conv_id,)).fetchone()
         return ConversationState.from_dict(json.loads(r[0])) if r else ConversationState()
 
+    @_locked
     def save_state(self, conv_id: str, s: "ConversationState", turn: int, changes: list[dict]) -> None:
         self.db.execute("INSERT OR REPLACE INTO state VALUES (?,?)", (conv_id, json.dumps(asdict(s))))
         for c in changes:
             self.db.execute("INSERT INTO state_log VALUES (?,?,?,?)", (conv_id, turn, json.dumps(c), time.time()))
         self.db.commit()
 
+    @_locked
     def latest_summary(self, conv_id: str) -> dict | None:
         r = self.db.execute("SELECT upto_turn, method, body FROM summaries WHERE conv_id = ? ORDER BY upto_turn DESC LIMIT 1",
                             (conv_id,)).fetchone()
         return {"upto_turn": r[0], "method": r[1], "text": r[2]} if r else None
 
+    @_locked
     def save_summary(self, conv_id: str, upto_turn: int, method: str, text: str) -> None:
         self.db.execute("INSERT INTO summaries VALUES (?,?,?,?,?)", (conv_id, upto_turn, method, text, time.time()))
         self.db.commit()
 
+    @_locked
     def save_trace(self, conv_id: str, turn: int, trace: dict) -> None:
         self.db.execute("INSERT INTO traces VALUES (?,?,?,?)", (conv_id, turn, json.dumps(trace, default=str), time.time()))
         self.db.commit()
 
+    @_locked
     def traces(self, conv_id: str) -> list[dict]:
         return [json.loads(b) for (b,) in self.db.execute("SELECT body FROM traces WHERE conv_id = ? ORDER BY turn", (conv_id,))]
 

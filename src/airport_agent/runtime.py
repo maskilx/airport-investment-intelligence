@@ -280,7 +280,8 @@ class Agent:
         result.trace = {"turn": turn, "conv_id": cid, "backend": getattr(self.backend, "name", type(self.backend).__name__),
                         "kind": result.kind, "steps": steps, "tool_calls": calls, "latency_s": round(time.time() - t0, 3),
                         "usage": usage.__dict__, "context": ctx_stats, "state_changes": changes,
-                        "cited": result.cited_findings, "errors": result.errors}
+                        "cited": result.cited_findings, "errors": result.errors, "question": question,
+                        "answer": {"markdown": result.markdown, "structured": result.structured, "charts": result.charts}}
         self.store.save_trace(cid, turn, result.trace)
         self.store.touch(cid)
         emit({"type": "answer", "turn": turn, "kind": result.kind, "markdown": result.markdown,
