@@ -100,13 +100,33 @@ def build_chart(spec: dict, store: EvidenceStore, idx: int = 0) -> dict:
         out["vega_lite"] = {**base, "mark": {"type": "line", "point": True}, "encoding": enc}
         return out
     xfield = "category" if any(r["category"] for r in num) else ("time" if any(r["time"] for r in num) else "label")
+    unit_title = None if num[0]["unit"] in ("ratio", "") else num[0]["unit"]
+    grouped = bool(series_field and series_field != xfield)
+    cats = len({r[xfield] for r in num})
+    if cats <= 14 and xfield != "time":          # few categories: horizontal, sorted, directly labelled bars
+        enc = {"y": {"field": xfield, "type": "nominal", "title": None, "sort": "-x",
+                     "axis": {"labelFontWeight": 600, "labelPadding": 6}},
+               "x": {"field": "value", "type": "quantitative", "title": unit_title, "axis": {"format": fmt, "tickCount": 4}},
+               "opacity": {"condition": {"test": "datum['class'] == 'forecast' || datum['class'] == 'estimated'",
+                                         "value": 0.55}, "value": 1},
+               "tooltip": tooltip}
+        if grouped:
+            enc["color"] = {"field": series_field, "type": "nominal", "title": None}
+            enc["yOffset"] = {"field": series_field}
+        out["vega_lite"] = {**base, "height": {"step": 22 if grouped else 30},
+                            "layer": [{"mark": {"type": "bar", "cornerRadiusEnd": 2, "height": {"band": 0.72}}},
+                                      {"mark": {"type": "text", "align": "left", "dx": 4, "fontSize": 10.5,
+                                                "font": "IBM Plex Mono, monospace"},
+                                       "encoding": {"text": {"field": "formatted"}}}],
+                            "encoding": enc}
+        return out
     enc = {"x": {"field": xfield, "type": "nominal", "title": None, "sort": None if xfield == "time" else "-y",
                  "axis": {"labelAngle": 0 if len(num) <= 8 else -40}},
-           "y": {"field": "value", "type": "quantitative", "title": num[0]["unit"], "axis": {"format": fmt}},
+           "y": {"field": "value", "type": "quantitative", "title": unit_title, "axis": {"format": fmt}},
            "opacity": {"condition": {"test": "datum['class'] == 'forecast' || datum['class'] == 'estimated'", "value": 0.55},
                        "value": 1},
            "tooltip": tooltip}
-    if series_field and series_field != xfield:
+    if grouped:
         enc["color"] = {"field": series_field, "type": "nominal", "title": None}
         enc["xOffset"] = {"field": series_field}
     out["vega_lite"] = {**base, "mark": {"type": "bar", "cornerRadiusEnd": 2}, "encoding": enc}

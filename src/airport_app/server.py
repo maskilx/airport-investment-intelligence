@@ -174,7 +174,7 @@ def create_app(state: App | None = None) -> FastAPI:
         return {"budget": a.ctx.budget.__dict__, "context_stats": stats, "memory_block": mem,
                 "summary": st.store.latest_summary(cid),
                 "state": {"entities": [{"key": k, **e} for k, e in s.focus(50)], "metrics": s.metrics,
-                          "assumptions": s.assumptions, "decisions": s.decisions, "preferences": s.preferences,
+                          "assumptions": s.assumptions, "decisions": s.decisions, "preferences": s.preferences, "lists": s.lists,
                           "answers": s.answers[-30:]},
                 "findings_total": len(a.evidence.all()), "usage": a.usage.__dict__}
 

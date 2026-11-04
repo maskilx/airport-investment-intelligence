@@ -247,6 +247,8 @@ class Agent:
                                     "content": f"Answer rendered and shown to the user; cited {', '.join(cited)}"})
                     emit({"type": "tool_finished", "turn": turn, "id": u["id"], "name": name, "ok": True,
                           "elapsed_s": el, "digest": {"findings": cited}})
+                    res["structured"]["evidence_detail"] = [self._brief(f) for f in dict.fromkeys(
+                        res["structured"]["evidence"] + cited) if f in self.evidence]
                     result = TurnResult("answer", res["markdown"], calls, cited, structured=res["structured"],
                                         charts=charts)
                     break
@@ -310,6 +312,12 @@ class Agent:
         except Exception:                                             # memory bookkeeping never breaks a turn
             pass
         return res
+
+    def _brief(self, fid: str) -> dict:
+        f = self.evidence.get(fid)
+        return {"id": f.id, "label": f.label, "formatted": fmt_value(f), "class": f.epistemic_class, "metric_id": f.metric_id,
+                "period": f.window.get("label", ""), "sources": [s.label() for s in f.sources],
+                "coverage": f.coverage, "inputs": f.inputs}
 
     def _recall(self, args: dict) -> dict:
         q = str(args.get("query") or "")

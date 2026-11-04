@@ -20,7 +20,7 @@ from typing import Any
 
 from .evidence import EvidenceStore, Finding, InvalidSpec
 
-PH = re.compile(r"\{(F\d+)(?:\.(label|period|class|source|value|definition))?\}")
+PH = re.compile(r"\{(F\d+)(?:\.(label|name|period|class|source|value|definition))?\}")
 # numerals allowed in prose: 4-digit years 1990-2060, FY/CY+year, 'T-100', 'T12', list markers like '1.' at line start
 ALLOW = re.compile(r"\b(?:19[9]\d|20[0-6]\d)\b|\b(?:FY|CY)\s?\d{2,4}\b|\bT-100\b|\bT12\b|^\s*\d+[.)]\s|\bQ[1-4]\b|"
                    r"\b[A-Z][A-Z0-9]{1,3}\b", re.M)   # codes must START with a letter (LAX, F12, Q1); '26M' is a number
@@ -58,6 +58,8 @@ def fmt_value(f: Finding) -> str:
         return v
     if f.fmt == "pct":
         s = f"{v * 100:.1f}%"
+        if s in ("-0.0%",):              # a tiny negative change rounds to zero: never show a signed zero
+            s = "0.0%"
     elif f.fmt == "usd":
         s = f"${v / 1e9:,.2f}B" if abs(v) >= 1e9 else f"${v / 1e6:,.1f}M" if abs(v) >= 1e6 else f"${v:,.0f}"
     elif f.fmt == "minutes":
@@ -150,6 +152,8 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
             return fmt_value(f)
         if attr == "label":
             return f.label
+        if attr == "name":                    # metric name only (no subject / period)
+            return f.label.split(" \u2014 ")[0]
         if attr == "period":
             return f.window.get("label", "")
         if attr == "class":
@@ -160,6 +164,12 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
 
     def r(t):
         return PH.sub(sub, t or "")
+
+    def rm(t):               # same text, but values carry their finding id for the UI: ⟦F12|20.6%⟧
+        def subm(m):
+            v = sub(m)
+            return f"\u27e6{m.group(1)}|{v}\u27e7" if m.group(2) in (None, "value") else v
+        return PH.sub(subm, t or "")
     lines = [f"## {r(answer['headline'])}", "", r(answer["body"])]
     claims = answer.get("claims", [])
     if claims:
@@ -193,10 +203,12 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
             lines += ["", "**Caveats and limitations**"] + [f"- {c}" for c in cav] + [f"- {r(x)}" for x in lim]
     charts = [c for c in answer.get("charts", []) or [] if isinstance(c, dict)]
     ids = list(dict.fromkeys(ids + [f for c in charts for f in c["findings"]]))
-    structured = {"headline": r(answer["headline"]), "body": r(answer["body"]),
-                  "claims": [{"kind": c["kind"], "text": r(c["text"]), "support": c.get("support") or []} for c in claims],
-                  "assumptions": [r(a) for a in answer.get("assumptions", [])],
-                  "limitations": [r(x) for x in answer.get("limitations", [])],
+    structured = {"headline": r(answer["headline"]), "body": rm(answer["body"]),
+                  "claims": [{"kind": c["kind"], "text": rm(c["text"]), "support": c.get("support") or []} for c in claims],
+                  "assumptions": [rm(a) for a in answer.get("assumptions", [])],
+                  "limitations": [rm(x) for x in answer.get("limitations", [])],
+                  "caveats": list(dict.fromkeys(c for f in expanded for c in f.caveats)),
+                  "methodology": {f.metric_id: f.definition for f in expanded},
                   "evidence": list(dict.fromkeys([f.id for f in expanded] + ids)),
                   "charts": charts}
     return {"markdown": "\n".join(lines), "cited_findings": ids, "structured": structured}

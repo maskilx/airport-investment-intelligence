@@ -170,6 +170,7 @@ class ConversationState:
     decisions: list[dict] = field(default_factory=list)         # [{text, turn, support: [F#]}]
     answers: list[dict] = field(default_factory=list)           # [{turn, question, headline, cited: [F#]}]
     preferences: dict[str, str] = field(default_factory=dict)
+    lists: list[dict] = field(default_factory=list)            # ordered results [{turn, op, label, items: [code], scores: [F#]}]
 
     @staticmethod
     def from_dict(d: dict) -> "ConversationState":
@@ -194,7 +195,10 @@ class ConversationState:
                     if c:
                         touch(c["code"], "airport", c.get("name") or r["term"], ids)
                 elif r.get("kind") == "group":
-                    touch(r["term"], "group", r.get("note") or r["term"], r.get("airport_ids"))
+                    g = next((c.get("group") for c in r.get("candidates", []) if c.get("group")), None)
+                    if g:              # same key as the group seen by run_analysis, so a region is one entity
+                        touch(json.dumps(g, sort_keys=True), "group", ", ".join(f"{k}={v}" for k, v in g.items()),
+                              r.get("airport_ids"))
         if tool == "run_analysis" and isinstance(result, dict) and not result.get("error"):
             spec = args.get("spec") or args
             ent = result.get("entities") or {}
@@ -213,6 +217,15 @@ class ConversationState:
                     self.metrics[mid] = turn
             if spec.get("op") == "screen":
                 self.metrics["screen_score"] = turn
+            if spec.get("op") in ("screen", "rank") and result.get("table"):
+                rows = [r for r in result["table"] if r.get("airport")]
+                for r in rows:
+                    touch(r["airport"], "airport", r["airport"])
+                label = spec.get("op") + (f" ({(spec.get('options') or {}).get('scenario', 'base')})" if spec.get("op") == "screen"
+                                          else ": " + ", ".join(str(m if isinstance(m, str) else m.get("id")) for m in spec.get("metrics") or []))
+                self.lists.append({"turn": turn, "op": spec["op"], "label": label, "items": [r["airport"] for r in rows],
+                                   "scores": [(r.get("score") or {}).get("id") for r in rows]})
+                self.lists = self.lists[-6:]
             if spec.get("window"):
                 self.windows.append({"spec": spec["window"], "turn": turn})
                 self.windows = self.windows[-8:]
@@ -419,6 +432,9 @@ class ContextBuilder:
             st_lines.append("No longer valid (do not use): " + "; ".join(f"{a['id']} ({a['status']}): {a['text']}" for a in sup[-6:]))
         if state.decisions:
             st_lines.append("Decisions: " + "; ".join(f"{d['text']} [{', '.join(d['support'])}]" for d in state.decisions[-6:]))
+        for L in state.lists[-2:]:
+            st_lines.append(f"Ordered result from turn {L['turn']} ({L['label']}), best first: "
+                            + ", ".join(f"{c} [{f}]" if f else c for c, f in zip(L["items"][:15], L["scores"][:15])))
         if state.preferences:
             st_lines.append("Preferences: " + "; ".join(f"{k}={v}" for k, v in state.preferences.items()))
         st_txt = "\n".join(st_lines)[: int(B.total * B.state_share) * 4]

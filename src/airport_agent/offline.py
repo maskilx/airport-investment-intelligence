@@ -103,12 +103,14 @@ class OfflineBackend:
         focus_t = [(c, int(f), int(l)) for c, f, l in
                    re.findall(r"\b([A-Z][A-Z0-9]{2,3}) \(airport, first turn (\d+), last turn (\d+)\)", memory)]
         focus = [c for c, _, _ in focus_t]                      # most recent first
-        if re.search(r"\b(first|earliest|originally)\b", q, re.I) and focus_t:
-            earliest = min(focus_t, key=lambda x: (x[1], -x[2]))[0]
-            if re.search(r"\b(compare|versus|vs|against|with)\b", q, re.I) and REFERENCE.search(q):
-                focus = list(dict.fromkeys([focus[0], earliest]))     # "that" (latest) vs "the first one"
-            else:
-                focus = [earliest] + [c for c in focus if c != earliest]
+        ranked_codes = re.findall(r"\b([A-Z][A-Z0-9]{2,3}) \[F\d+\]", memory)
+        if re.search(r"\b(first|earliest|originally)\b", q, re.I) and focus_t and not re.search(r"\bfirst (one|airport|candidate|ranked)\b", q, re.I):
+            comparing = bool(re.search(r"\b(compare|versus|vs|against|with)\b", q, re.I) and REFERENCE.search(q))
+            pool = [x for x in focus_t if not (comparing and x[0] == focus[0])] or focus_t
+            # earliest turn; ties (several airports from one answer) -> best-ranked, then listing order
+            earliest = min(enumerate(pool), key=lambda ix: (ix[1][1], ranked_codes.index(ix[1][0]) if ix[1][0] in ranked_codes
+                                                            else 99, ix[0]))[1][0]
+            focus = list(dict.fromkeys([focus[0], earliest])) if comparing else [earliest] + [c for c in focus if c != earliest]
         groups = re.findall(r"(\{[^{}]*\}) \(group", memory)
         prev_metrics = re.findall(r"Metrics used: ([^\n]+)", memory)
         prev_metrics = [m.strip() for m in prev_metrics[0].split(",")] if prev_metrics else []
@@ -141,13 +143,26 @@ class OfflineBackend:
                     g = next((c.get("group") for c in r["candidates"] if c.get("group")), None)
                     if g:
                         group, region_label = g, r["term"]
-        # 2) references to earlier entities
+        # 2) references to earlier entities: ordinal references into the last ranked list first
+        ranked = re.findall(r"Ordered result from turn \d+ \([^)]*\)+, best first: ([^\n]+)", memory)
+        ordinals = {"first": 0, "second": 1, "third": 2, "fourth": 3, "fifth": 4}
+        topn = re.search(r"\btop (two|three|four|five|\d)\b", q, re.I)
+        nth = re.search(r"\b(first|second|third|fourth|fifth)\s+(one|airport|candidate|ranked)\b", q, re.I)
+        ordinal_ref = False
+        if not airports and not group and ranked and (topn or nth):
+            ordinal_ref = True
+            items = re.findall(r"\b([A-Z][A-Z0-9]{2,3})\b(?= \[|,|$)", ranked[-1])
+            if topn:
+                k = {"two": 2, "three": 3, "four": 4, "five": 5}.get(topn.group(1).lower()) or int(topn.group(1))
+                airports = items[:k]
+            else:
+                airports = items[ordinals[nth.group(1).lower()]:][:1]
         if not airports and not group:
             if focus and (REFERENCE.search(q) or not terms):
                 airports = focus[:2] if re.search(r"\b(both|compare|them|those|these)\b", q, re.I) else focus[:1]
             elif groups and intent == "screen":
                 group = json.loads(groups[0])
-        elif REFERENCE.search(q) and focus and re.search(r"\b(compare|versus|vs|against|with)\b", q, re.I):
+        elif not ordinal_ref and REFERENCE.search(q) and focus and re.search(r"\b(compare|versus|vs|against|with)\b", q, re.I):
             airports = list(dict.fromkeys(airports + [c for c in focus if c not in airports][:1]))
         if not intent and not metrics and prev_metrics:
             metrics = [m for m in prev_metrics if m != "screen_score"][:4]
@@ -243,8 +258,9 @@ class OfflineBackend:
             by_ap.setdefault(ap or "the selected airports", []).append(fid)
         body = []
         for ap, fids in by_ap.items():
-            body.append(f"**{ap}**: " + "; ".join(f"{{{f}.label}}: {{{f}}}" for f in fids[:8]) + ".")
-        claims = [{"kind": "fact", "text": f"{{{f}.label}} is {{{f}}}.", "support": [f]} for _, _, f in cells[:12]]
+            body.append(f"- **{ap}** \u2014 " + "; ".join(f"{{{f}.name}} {{{f}}} ({{{f}.period}})" for f in fids[:8]))
+        claims = [{"kind": "fact", "text": f"{ap}: {{{f}.name}} is {{{f}}} ({{{f}.period}}).", "support": [f]}
+                  for ap, _, f in cells[:12] if ap]
         charts = []
         if len(by_ap) > 1:
             metric_keys = list(dict.fromkeys(k for _, k, _ in cells))

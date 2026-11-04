@@ -278,7 +278,7 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          "Validate and render the final answer. answer = {headline, body, claims:[{kind: fact|inference|hypothesis, text, "
          "support:[F#]}], assumptions:[...], limitations:[...], charts:[{type: auto|bar|line|scatter|table, title, findings:[F#...]}]}. "
          "Charts take their values from the cited findings (comparisons -> bar, monthly series -> line). Write every number as a placeholder {F#} (or {F#.period}, "
-         "{F#.label}); literal numbers are rejected. Evidence, methodology and caveats are appended automatically.",
+         "{F#.label}, {F#.name}); literal numbers are rejected. Evidence, methodology and caveats are appended automatically.",
          {"type": "object", "properties": {"answer": {"type": "object"}}, "required": ["answer"]}, _compose),
 ]}
 

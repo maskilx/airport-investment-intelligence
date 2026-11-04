@@ -142,3 +142,13 @@ def test_superseded_assumptions_are_flagged_in_context(tmp_path):
     mem, _, _ = ContextBuilder(st).build("c", "next", state, ev, fmt_value)
     assert "Active assumptions: A2: use fiscal year" in mem
     assert "No longer valid (do not use): A1 (superseded): use calendar year" in mem
+
+
+def test_ranked_lists_are_remembered_in_order(tmp_path):
+    s = ConversationState()
+    res = {"table": [{"rank": 1, "airport": "BOS", "score": {"id": "F9"}}, {"rank": 2, "airport": "PWM", "score": {"id": "F10"}}]}
+    s.observe("run_analysis", {"spec": {"op": "screen", "entities": {"group": {"census_division": "New England"}}}}, res, 1)
+    assert s.lists[-1]["items"] == ["BOS", "PWM"] and s.lists[-1]["scores"] == ["F9", "F10"]
+    st, ev, _ = _long_conversation(tmp_path, 1)
+    mem, _, _ = ContextBuilder(st).build("c", "top two?", s, ev, fmt_value)
+    assert "Ordered result from turn 1 (screen (base)), best first: BOS [F9], PWM [F10]" in mem

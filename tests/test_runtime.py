@@ -274,4 +274,14 @@ def test_offline_planner_answers_the_assignment_questions():
     r6 = a.ask("Actually I meant Portland, Maine")
     assert r6.kind == "answer" and "PWM" in r6.markdown and a.state.assumptions
     r7 = a.ask("Compare that with the airport we discussed first")
-    assert r7.kind == "answer" and "PWM" in r7.markdown and "LAX" in r7.markdown
+    assert r7.kind == "answer" and "PWM" in r7.markdown and "BOS" in r7.markdown   # BOS: first airport (turn-1 screen)
+
+
+@needs_db
+def test_offline_ordinal_follow_up_uses_ranked_list():
+    from airport_agent.offline import OfflineBackend
+    from airport_agent.runtime import Agent
+    a = Agent(OfflineBackend())
+    a.ask("Which airports in New England are strong candidates for terminal expansion?")
+    r = a.ask("Compare congestion at the top two of those")
+    assert r.kind == "answer" and r.structured["headline"].endswith("BOS, PWM")
