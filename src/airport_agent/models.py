@@ -135,7 +135,9 @@ class GeminiBackend:
         if not FREE_TIER_MODEL.match(self.model) and os.environ.get("AIRPORT_ALLOW_PAID") != "1":
             raise ModelError(f"model {self.model!r} is not a free-tier Flash model; set AIRPORT_ALLOW_PAID=1 to allow it")
         self.max_requests = int(max_requests or os.environ.get("AIRPORT_GEMINI_MAX_REQUESTS", 25))
-        self.usage_log = Path(usage_log or os.environ.get("AIRPORT_GEMINI_USAGE_LOG", "data/app/gemini_usage.jsonl"))
+        from airport_data.config import get_paths            # anchored to the data dir, not the current directory,
+        self.usage_log = Path(usage_log or os.environ.get("AIRPORT_GEMINI_USAGE_LOG")   # so the daily budget always
+                              or get_paths().app / "gemini_usage.jsonl")              # reads the same log
         self.timeout = timeout
         self._lock = threading.Lock()
         self.requests = self._requests_today()     # the budget is per UTC day and survives restarts

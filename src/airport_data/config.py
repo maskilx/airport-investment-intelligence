@@ -40,6 +40,29 @@ class Paths:
     def tmp(self) -> Path:
         return self.root / "tmp"
 
+    @property
+    def app(self) -> Path:          # runtime state: conversations, model usage log (git-ignored)
+        return self.root / "app"
+
+
+def load_env(path: str | os.PathLike | None = None) -> list[str]:
+    """Minimal .env loader (no dependency): KEY=VALUE lines from <repo>/.env, never overriding variables already set in
+    the environment. Returns the names it set (values are never logged)."""
+    p = Path(path) if path else REPO_ROOT / ".env"
+    if not p.is_file():
+        return []
+    set_ = []
+    for line in p.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip().removeprefix("export ").strip(), v.strip().strip('"').strip("'")
+        if k and k not in os.environ:
+            os.environ[k] = v
+            set_.append(k)
+    return set_
+
 
 def get_paths(root: str | os.PathLike | None = None) -> Paths:
     root = root or os.environ.get("AIRPORT_DATA_DIR") or (REPO_ROOT / "data")

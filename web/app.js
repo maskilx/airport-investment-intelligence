@@ -47,7 +47,9 @@ async function loadHealth() {
     const hl = (state.health = await api("/api/health"));
     const b = $("#backendBadge");
     b.className = "badge " + (hl.llm ? "llm" : "offline");
-    b.lastChild.textContent = hl.llm ? [hl.backend, hl.model].filter(Boolean).join(" · ") : "offline planner · no LLM";
+    b.lastChild.textContent = hl.llm
+      ? ["LLM", hl.backend, hl.model, hl.budget ? `${hl.budget.used_today}/${hl.budget.max_per_day} req today` : null].filter(Boolean).join(" · ")
+      : "OFFLINE mode · rule-based planner · no LLM calls";
     b.title = hl.llm ? "Answers are planned by the LLM; every number still comes from the engine"
       : "Rule-based demo planner — no model calls. Set AIRPORT_MODEL=gemini for open-ended questions.";
     const built = hl.build?.built_at || hl.build?.build_finished_at || "";

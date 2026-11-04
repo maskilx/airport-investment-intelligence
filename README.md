@@ -10,21 +10,38 @@ through a structured conversation memory. Web research is optional and kept sepa
 
 ## Quick start
 
+**This machine (data and database already present):**
 ```bash
-python3.12 -m venv .venv && .venv/bin/pip install -e ".[app,dev]"
-.venv/bin/python -m airport_data build        # offline: committed raw archive -> data/db/airport.duckdb
-.venv/bin/python -m airport_app               # workspace at http://127.0.0.1:8765
-.venv/bin/python -m pytest                    # all tests are offline; no model calls
+./scripts/start.sh            # then open http://127.0.0.1:8765
 ```
+The startup banner prints the mode (OFFLINE or GEMINI), the database build and the URL. It refuses to start with a
+clear message if the database is missing or the model configuration is invalid. It never silently falls back.
 
-### Choosing the planner (cost-safe by default)
+**New machine (fresh clone):**
+```bash
+./scripts/bootstrap.sh        # .venv + deps, .env from .env.example, public-data download (~500 MB), DB build
+./scripts/start.sh
+```
+The aviation data is **not in Git**. `data/raw/`, `data/db/` and `data/app/` are git-ignored.
+`bootstrap.sh` re-downloads every source from its public publisher (BTS, FAA, Census, BEA, OurAirports) using the plan in
+`config/ingest.toml`, checksums each file into an immutable vintage, and builds `data/db/airport.duckdb`. Curated
+tables (`data/curated/`, `data/reference/`) and the fetch and validation audit log (`data/manifest/`) are small and
+tracked. A fresh download gets the publishers' *current* files, so numbers can differ from this machine's vintages;
+every answer shows its periods and vintages.
 
-| `AIRPORT_MODEL` | Planner | Cost |
+Tests (offline, no model calls): `.venv/bin/python -m pytest`. Seed-archive tests skip when `data/raw/` is absent.
+
+### Offline vs Gemini mode
+
+Mode is set in `.env`, which is copied from `.env.example` and git-ignored. Restart the app after changing it.
+
+| Mode | `.env` | Cost |
 |---|---|---|
-| *(unset)* | **offline** rule-based planner: the assignment questions, comparisons, trends, screens, follow-ups | none, no model calls |
-| `gemini` | Google Gemini API with function calling. Also requires `AIRPORT_ALLOW_GEMINI=1` and `GEMINI_API_KEY`. Optional: `AIRPORT_GEMINI_MODEL`, `AIRPORT_GEMINI_MAX_REQUESTS` (default 25 per process). | your quota; every call is logged to `data/app/gemini_usage.jsonl`; a 429 stops the turn (**no fallback**) |
+| **Offline** (default) | `AIRPORT_MODEL=offline` | none. A rule-based planner handles the assignment questions, comparisons, trends, screens and follow-ups. **No model API calls.** |
+| **Gemini** | `AIRPORT_MODEL=gemini`, `AIRPORT_ALLOW_GEMINI=1`, `GEMINI_API_KEY=…` | Free-tier Flash models only (`AIRPORT_GEMINI_MODEL`). At most `AIRPORT_GEMINI_MAX_REQUESTS` (default 25) per UTC day, counted in `data/app/gemini_usage.jsonl` across restarts. A 429 or an exhausted budget stops the turn: **no fallback**. |
 
-`AIRPORT_WEB=0` disables web research. It is only offered to LLM planners.
+The header badge shows the active mode, and in Gemini mode the requests used today. `AIRPORT_WEB=0` disables web
+research, which is only offered to LLM planners.
 
 ## Data foundation
 

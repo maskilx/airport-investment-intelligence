@@ -47,7 +47,10 @@ class App:
 
     def __init__(self, store_path: str | None = None, backend=None, extra_tools_factory=None):
         self.con = connect()
-        self.store = ConversationStore(store_path or os.environ.get("AIRPORT_CONV_DB", "data/app/conversations.sqlite"))
+        from airport_data.config import get_paths
+        default_store = get_paths().app / "conversations.sqlite"          # anchored: same history from any cwd
+        default_store.parent.mkdir(parents=True, exist_ok=True)
+        self.store = ConversationStore(store_path or os.environ.get("AIRPORT_CONV_DB") or str(default_store))
         self.backend = backend or backend_from_env()
         self.prov = Provenance(self.con.cursor())
         self.extra_tools_factory = extra_tools_factory
@@ -86,9 +89,10 @@ def create_app(state: App | None = None) -> FastAPI:
     @api.get("/api/health")
     def health():
         b = st.backend
+        budget = {"used_today": b.requests, "max_per_day": b.max_requests} if hasattr(b, "max_requests") else None
         return {"ok": True, "backend": getattr(b, "name", "?"), "model": getattr(b, "model", None), "web": st.web_enabled,
                 "llm": getattr(b, "name", "") not in ("offline", "scripted"), "catalog_version": CATALOG_VERSION,
-                "build": st.build_info()}
+                "build": st.build_info(), "budget": budget}
 
     @api.get("/api/conversations")
     def conversations():
@@ -212,5 +216,37 @@ def main() -> None:                                       # python -m airport_ap
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
     a = p.parse_args()
-    uvicorn.run(create_app(), host=a.host, port=a.port, log_level="info")
+    from airport_data.config import get_paths, load_env
+    loaded = load_env()
+    paths = get_paths()
+    line = "-" * 72
+    print(line)
+    print("Airport Investment Intelligence: local workspace")
+    if loaded:
+        print(f"  .env loaded        : {', '.join(sorted(loaded))} (values not shown)")
+    if not paths.db_file.exists():
+        print(f"  ERROR: database not found at {paths.db_file}")
+        print("  Build it first:  ./scripts/bootstrap.sh   (or: .venv/bin/python -m airport_data build)")
+        raise SystemExit(2)
+    try:
+        app = create_app()
+    except Exception as e:                               # misconfiguration: say what to fix, never fall back
+        print(f"  ERROR: could not start the model backend: {e}")
+        print("  Offline mode needs no key: unset AIRPORT_MODEL (or set AIRPORT_MODEL=offline) in .env")
+        raise SystemExit(2)
+    st = app.state.app
+    b = st.backend
+    if getattr(b, "name", "") == "gemini":
+        print(f"  Mode               : GEMINI  (model {b.model}; {b.requests}/{b.max_requests} requests used today, "
+              f"UTC; no paid fallback)")
+        print(f"  Usage log          : {b.usage_log}")
+    else:
+        print(f"  Mode               : OFFLINE (rule-based planner; no model API calls)")
+    bi = st.build_info()
+    print(f"  Database           : {paths.db_file}  (built {bi.get('built_at', '?')}, rev {bi.get('git_rev', '?')})")
+    print(f"  Conversations      : {st.store.path if hasattr(st.store, 'path') else paths.app}")
+    print(f"  Web research       : {'on' if st.web_enabled else 'off'}")
+    print(f"  Open               : http://{a.host}:{a.port}")
+    print(line, flush=True)
+    uvicorn.run(app, host=a.host, port=a.port, log_level="warning")
 
