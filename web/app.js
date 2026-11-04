@@ -47,7 +47,7 @@ async function loadHealth() {
     const hl = (state.health = await api("/api/health"));
     const b = $("#backendBadge");
     b.className = "badge " + (hl.llm ? "llm" : "offline");
-    b.lastChild.textContent = hl.llm ? `${hl.backend} · ${hl.model ?? ""}` : "offline planner · no LLM";
+    b.lastChild.textContent = hl.llm ? [hl.backend, hl.model].filter(Boolean).join(" · ") : "offline planner · no LLM";
     b.title = hl.llm ? "Answers are planned by the LLM; every number still comes from the engine"
       : "Rule-based demo planner — no model calls. Set AIRPORT_MODEL=gemini for open-ended questions.";
     const built = hl.build?.built_at || hl.build?.build_finished_at || "";
@@ -247,9 +247,15 @@ function renderAnswer(turnEl, e) {
     }
     if (s.claims?.length) {
       card.append(h("div", { class: "section" }, h("h4", {}, "Findings and reasoning"), h("ul", { class: "claims" },
-        s.claims.map((c) => h("li", {}, h("span", { class: `tag ${c.kind}` }, c.kind),
+        s.claims.map((c) => h("li", {}, h("span", { class: `tag ${c.kind}` }, c.kind === "external" ? "web" : c.kind),
           h("span", {}, h("span", { html: rich(c.text).replace(/^<p>|<\/p>$/g, "") }),
+            c.kind === "external" ? h("span", {}, " — ", h("q", { class: "quote" }, c.quote), " ", h("button", { class: "chip ext", "data-fid": c.source }, c.source)) : null,
             c.support?.length ? h("span", { class: "support" }, "[", c.support.map((id) => h("button", { "data-fid": id }, id)), "]") : null))))));
+    }
+    if (s.external?.length) {
+      card.append(h("div", { class: "section" }, h("h4", {}, "External sources — web, not part of the internal datasets"),
+        h("ul", { class: "plain" }, s.external.map((w) => h("li", {}, h("button", { class: "chip ext", "data-fid": w.id }, w.id), " ",
+          h("a", { href: w.url, target: "_blank", rel: "noopener noreferrer" }, w.title), ` — ${w.domain}, retrieved ${w.retrieved_at.slice(0, 10)}`)))));
     }
     const lists = [["Assumptions", s.assumptions], ["Limitations", s.limitations]].filter(([, v]) => v?.length);
     for (const [k, v] of lists) card.append(h("div", { class: "section" }, h("h4", {}, k), h("ul", { class: "plain" }, v.map((x) => h("li", { html: rich(x).replace(/^<p>|<\/p>$/g, "") })))));
@@ -321,7 +327,22 @@ function selectTab(tab) {
 }
 function emptyPane(msg) { $("#pane").replaceChildren(h("p", { class: "muted" }, msg)); }
 
+async function showExternal(wid) {
+  selectTab("evidence");
+  let w;
+  try { w = await api(`/api/conversations/${state.conv}/external/${wid}`); } catch (err) { return emptyPane(`${wid}: ${err.message}`); }
+  $("#pane").replaceChildren(
+    h("div", { class: "f-id" }, `${w.id} · external web source`),
+    h("p", { class: "f-label", style: "font:600 18px/1.3 var(--f-display);margin-top:6px" }, w.title),
+    h("div", { class: "src web" }, h("a", { href: w.url, target: "_blank", rel: "noopener noreferrer" }, `${w.domain} ↗`),
+      h("div", { class: "p", style: "margin-top:6px" }, `Retrieved ${w.retrieved_at} · ${w.chars.toLocaleString()} characters of text · sha256 ${w.sha256.slice(0, 12)}…`),
+      w.requested_url !== w.url ? h("div", { class: "p" }, `Requested ${w.requested_url} (redirected)`) : null),
+    h("p", { class: "caveat" }, "External content is not validated like internal datasets. Quotes cited in answers are verified to appear verbatim in this text."),
+    h("div", { class: "kicker" }, "Beginning of the fetched text"), h("pre", { class: "spec" }, w.excerpt));
+}
+
 async function showFinding(fid) {
+  if (fid.startsWith("W")) return showExternal(fid);
   selectTab("evidence");
   document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
   document.querySelectorAll(`.chip[data-fid="${fid}"]`).forEach((c) => c.classList.add("on"));

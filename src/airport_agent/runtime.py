@@ -54,7 +54,14 @@ Conversation memory:
   State your interpretation as an assumption; if two readings are equally plausible, ask.
 - When the user corrects you or changes an assumption, call update_memory (set_assumption with replaces=A#, or
   retract_assumption) and re-run the affected analyses. Never reuse findings that depended on a superseded assumption.
-- Use recall to search older turns and findings when the memory block does not contain what the user refers to."""
+- Use recall to search older turns and findings when the memory block does not contain what the user refers to.
+
+External web research (only if web_search / fetch_page are available):
+- Use it only for context the internal data cannot provide (announced terminal programs, capacity projects, airline or
+  airport announcements, regulatory caps). Never use the web for a metric the catalog covers.
+- Cite web content only through claims {kind: "external", text, source: "W#", quote: "<verbatim words from the page>"}.
+  Numbers from the web may appear only inside the verbatim quote. Keep internal findings and external sources distinct
+  in the prose; say when sources disagree or are dated."""
 
 MEMORY_TOOLS = [
     {"name": "recall",
@@ -123,6 +130,9 @@ def _summarise_result(name: str, res: Any) -> dict:
         d["op"] = res.get("op")
         if res.get("entities"):
             d["entities"] = res["entities"]
+    if name in ("fetch_page", "web_search"):
+        d = {"external": [res["id"]]} if res.get("id") else {"results": len(res.get("results", []))}
+        return d
     if name == "resolve_entities":
         d["resolutions"] = [{"term": r.get("term") or r.get("group"), "kind": r.get("kind")} for r in res.get("resolutions", [])]
     return d
@@ -132,7 +142,7 @@ class Agent:
     def __init__(self, backend: ModelBackend, session: Session | None = None, store: ConversationStore | None = None,
                  conv_id: str | None = None, budget: Budget | None = None, limits: Limits | None = None,
                  summarizer: Callable[[str], str] | None = None, extra_tools: dict[str, tuple[dict, Callable]] | None = None,
-                 max_steps: int | None = None):
+                 max_steps: int | None = None, web: Any = None):
         self.backend = backend
         self.session = session or Session()
         self.store = store or ConversationStore(":memory:")
@@ -147,7 +157,14 @@ class Agent:
         if max_steps:
             self.limits.max_steps = max_steps
         self.summarizer = summarizer
-        self.extra_tools = extra_tools or {}
+        self.extra_tools = dict(extra_tools or {})
+        self.session.web = self.store.load_external(self.conv_id)        # W# external evidence (own namespace)
+        self.web = None
+        if web:
+            from .web import WebResearch
+            self.web = web if isinstance(web, WebResearch) else WebResearch()
+            self.web.items = self.session.web
+            self.extra_tools.update(self.web.tools())
         self.usage = Usage()
         self._lock = threading.Lock()
 
@@ -155,6 +172,10 @@ class Agent:
     @property
     def evidence(self):
         return self.session.ctx.store
+
+    @property
+    def web_evidence(self) -> dict[str, dict]:
+        return self.session.web
 
     def tools(self) -> list[dict]:
         return tool_schemas() + MEMORY_TOOLS + [s for s, _ in self.extra_tools.values()]
@@ -172,6 +193,8 @@ class Agent:
         if turn == 1:
             self.store.set_title(cid, question.strip()[:80])
         emit({"type": "turn_started", "turn": turn, "question": question})
+        if self.web:
+            self.web.new_turn()
         mem, recent, ctx_stats = self.ctx.build(cid, question, self.state, self.evidence, fmt_value)
         emit({"type": "context", "turn": turn, **ctx_stats})
         user_for_model = f"{mem}\n\n## Current question\n{question}" if mem else question
@@ -275,6 +298,7 @@ class Agent:
         self.usage.add(usage)
         # persist evidence + state; compaction
         self.store.save_findings(cid, self.evidence)
+        self.store.save_external(cid, self.session.web)
         self.store.save_state(cid, self.state, turn, changes)
         comp = self.ctx.maybe_compact(cid, self.state, self.summarizer)
         if comp:

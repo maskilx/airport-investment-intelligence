@@ -51,6 +51,9 @@ class App:
         self.backend = backend or backend_from_env()
         self.prov = Provenance(self.con.cursor())
         self.extra_tools_factory = extra_tools_factory
+        # web research is offered to LLM planners (the offline planner never uses it); AIRPORT_WEB=0 disables it
+        self.web_enabled = os.environ.get("AIRPORT_WEB", "1") != "0" and getattr(self.backend, "name", "") not in ("offline",)
+        self.web_factory = None
         self.agents: dict[str, Agent] = {}
         self.cancels: dict[str, threading.Event] = {}
         self.lock = threading.Lock()
@@ -62,7 +65,8 @@ class App:
                     raise HTTPException(404, "unknown conversation")
                 sess = Session(Engine(self.con.cursor()))
                 extra = self.extra_tools_factory(cid) if self.extra_tools_factory else None
-                self.agents[cid] = Agent(self.backend, sess, self.store, cid, extra_tools=extra)
+                self.agents[cid] = Agent(self.backend, sess, self.store, cid, extra_tools=extra,
+                                         web=self.web_enabled and (self.web_factory() if self.web_factory else True))
             return self.agents[cid]
 
     def build_info(self) -> dict:
@@ -82,7 +86,7 @@ def create_app(state: App | None = None) -> FastAPI:
     @api.get("/api/health")
     def health():
         b = st.backend
-        return {"ok": True, "backend": getattr(b, "name", "?"), "model": getattr(b, "model", None),
+        return {"ok": True, "backend": getattr(b, "name", "?"), "model": getattr(b, "model", None), "web": st.web_enabled,
                 "llm": getattr(b, "name", "") not in ("offline", "scripted"), "catalog_version": CATALOG_VERSION,
                 "build": st.build_info()}
 
@@ -160,10 +164,11 @@ def create_app(state: App | None = None) -> FastAPI:
     @api.get("/api/conversations/{cid}/external/{wid}")
     def external(cid: str, wid: str):
         a = st.agent(cid)
-        web = getattr(a, "web_evidence", None) or {}
+        web = a.web_evidence
         if wid not in web:
             raise HTTPException(404, f"{wid} is not an external source of this conversation")
-        return web[wid]
+        from airport_agent.web import public_record
+        return public_record(web[wid])
 
     @api.get("/api/conversations/{cid}/memory")
     def memory(cid: str):

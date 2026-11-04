@@ -215,11 +215,13 @@ def _sql(s: Session, a: dict) -> Any:
 def _compose(s: Session, a: dict) -> Any:
     ans = a.get("answer") or a
     codes = {r["code"] for r in s.ctx.resolver.rows if r["code"]}
-    errs = validate(ans, s.ctx.store, codes)
+    web = getattr(s, "web", None)
+    errs = validate(ans, s.ctx.store, codes, web)
     if errs:
         return {"error": "grounding_validation_failed", "errors": errs,
-                "hint": "Put every number in a {F#} placeholder; cite findings in claims[].support; label hypotheses."}
-    return render(ans, s.ctx.store, codes)
+                "hint": "Put every number in a {F#} placeholder; cite findings in claims[].support; label hypotheses; "
+                        "web content only via external claims with a verbatim quote."}
+    return render(ans, s.ctx.store, codes, web)
 
 
 def _finding(s: Session, a: dict) -> Any:
@@ -276,7 +278,7 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          _finding),
     Tool("compose_answer",
          "Validate and render the final answer. answer = {headline, body, claims:[{kind: fact|inference|hypothesis, text, "
-         "support:[F#]}], assumptions:[...], limitations:[...], charts:[{type: auto|bar|line|scatter|table, title, findings:[F#...]}]}. "
+         "support:[F#]} or {kind: external, text, source: W#, quote}], assumptions:[...], limitations:[...], charts:[{type: auto|bar|line|scatter|table, title, findings:[F#...]}]}. "
          "Charts take their values from the cited findings (comparisons -> bar, monthly series -> line). Write every number as a placeholder {F#} (or {F#.period}, "
          "{F#.label}, {F#.name}); literal numbers are rejected. Evidence, methodology and caveats are appended automatically.",
          {"type": "object", "properties": {"answer": {"type": "object"}}, "required": ["answer"]}, _compose),

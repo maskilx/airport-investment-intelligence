@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS state (conv_id TEXT PRIMARY KEY, body TEXT);
 CREATE TABLE IF NOT EXISTS state_log (conv_id TEXT, turn INTEGER, change TEXT, created_at REAL);
 CREATE TABLE IF NOT EXISTS summaries (conv_id TEXT, upto_turn INTEGER, method TEXT, body TEXT, created_at REAL);
 CREATE TABLE IF NOT EXISTS traces (conv_id TEXT, turn INTEGER, body TEXT, created_at REAL);
+CREATE TABLE IF NOT EXISTS external (conv_id TEXT, wid TEXT, n INTEGER, body TEXT, PRIMARY KEY (conv_id, wid));
 """
 
 
@@ -125,6 +126,18 @@ class ConversationStore:
             st.add(Finding(**d))
         st._n = max((int(f.id[1:]) for f in st.all()), default=0)      # ids continue, never reused
         return st
+
+    # external web evidence (separate namespace W#; immutable once fetched)
+    @_locked
+    def save_external(self, conv_id: str, items: dict[str, dict]) -> None:
+        for wid, it in items.items():
+            self.db.execute("INSERT OR IGNORE INTO external VALUES (?,?,?,?)", (conv_id, wid, int(wid[1:]), json.dumps(it)))
+        self.db.commit()
+
+    @_locked
+    def load_external(self, conv_id: str) -> dict[str, dict]:
+        rows = self.db.execute("SELECT wid, body FROM external WHERE conv_id = ? ORDER BY n", (conv_id,)).fetchall()
+        return {w: json.loads(b) for w, b in rows}
 
     # state & summaries & traces
     @_locked
