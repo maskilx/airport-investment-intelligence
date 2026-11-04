@@ -1,0 +1,88 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_county_name_alias",
+   "value": null
+  },
+  {
+   "detail": "3 rows, expected [1, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_county_name_alias",
+   "value": 3
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:state_abr",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_county_name_alias",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:nasr_county_name",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_county_name_alias",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:county_fips",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_county_name_alias",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:state_abr+nasr_county_name",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_county_name_alias",
+   "value": 0
+  }
+ ],
+ "period": "current",
+ "row_counts": {
+  "ref_county_name_alias": 3
+ },
+ "rules_version": "1",
+ "schemas": {
+  "ref_county_name_alias": [
+   [
+    "state_abr",
+    "VARCHAR"
+   ],
+   [
+    "nasr_county_name",
+    "VARCHAR"
+   ],
+   [
+    "county_fips",
+    "VARCHAR"
+   ],
+   [
+    "reason",
+    "VARCHAR"
+   ]
+  ]
+ },
+ "source_id": "ref_county_aliases",
+ "status": "pass",
+ "vintage_id": "20261104T113845Z"
+}

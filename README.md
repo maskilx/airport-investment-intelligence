@@ -49,5 +49,13 @@ data/
 * **Downstream layers** (analytics, agent, API, observability): use `airport_data.db.connect()` and
   the conformed views; every row carries `_source_id/_period/_vintage_id`, joinable to `ingest_manifest`.
 
-See [docs/02-phase1-data-foundation.md](docs/02-phase1-data-foundation.md) for the data model,
-validation rules, coverage and known limitations.
+## Sources (17)
+
+BTS T-100 Segment (all carriers) · BTS On-Time (12 months) · BTS lookups · FAA ATADS tower operations ·
+FAA CY enplanements & cargo · FAA TAF 2025 · FAA grant detail reports FY2021–25 · FAA NPIAS 2025–29 ·
+FAA NASR airport records · OurAirports · Census CBSA delineation · BEA county income/population ·
+curated constraints · reference lists (states, county aliases, CT geography overrides).
+
+Docs: [01 research](docs/01-data-foundation.md) · [02 Phase 1](docs/02-phase1-data-foundation.md) (data model,
+validation, identity design) · [03 Phase 1.1](docs/03-phase1.1-data-enrichment.md) (new sources, source
+assessments, data dictionary additions, limitations) · [validation-case results](docs/examples/RESULTS.md).

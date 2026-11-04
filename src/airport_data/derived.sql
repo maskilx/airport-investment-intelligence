@@ -190,3 +190,170 @@ SELECT e.source_id, e.period_kind, e.cadence, s.first_period, s.latest_period, s
            WHEN e.period_kind = 'snapshot' AND TRY_CAST(s.latest_period AS DATE) < current_date - INTERVAL 120 DAY THEN 'STALE'
            ELSE 'OK' END AS freshness
 FROM exp e LEFT JOIN sel s USING (source_id);
+
+-- ---------------------------------------------------------------- period completeness: missing != zero
+-- One row per expected period for every monthly/annual source, from its first loaded period up to the
+-- period the publisher should have released by now (cadence + lag). status:
+--   loaded            a validated vintage is in the DB
+--   missing           expected but absent (gap, failed fetch, or rejected vintage) -> treat as UNKNOWN, never 0
+--   not_yet_expected  inside the publication lag (normal)
+CREATE OR REPLACE VIEW v_source_period_status AS
+WITH loaded AS (
+    SELECT source_id, period FROM ingest_manifest WHERE selected GROUP BY ALL
+), cat AS (
+    SELECT id AS source_id, period_kind, period_basis, expected_lag_days FROM source_catalog WHERE period_kind IN ('month', 'year')
+), bounds AS (
+    SELECT c.source_id, c.period_kind, c.period_basis, min(l.period) AS first_period, max(l.period) AS last_loaded,
+           current_date - c.expected_lag_days * INTERVAL 1 DAY AS horizon
+    FROM cat c JOIN loaded l USING (source_id) GROUP BY ALL
+), spine AS (
+    SELECT b.source_id, b.period_kind, strftime(m, '%Y-%m') AS period, m <= b.horizon - INTERVAL 1 MONTH AS expected
+    FROM bounds b, generate_series(CAST(b.first_period || '-01' AS DATE),
+                                   greatest(CAST(b.last_loaded || '-01' AS DATE), CAST(date_trunc('month', current_date) AS DATE)),
+                                   INTERVAL 1 MONTH) AS g(m)
+    WHERE b.period_kind = 'month'
+    UNION ALL
+    SELECT b.source_id, b.period_kind, CAST(y AS VARCHAR),
+           -- calendar year Y is due after Dec 31 + lag; federal fiscal year Y after Sep 30 of Y + lag
+           CASE WHEN b.period_basis = 'fiscal' THEN make_date(y, 9, 30) <= b.horizon ELSE y <= year(b.horizon) - 1 END
+    FROM bounds b, generate_series(CAST(b.first_period AS INTEGER), greatest(CAST(b.last_loaded AS INTEGER), year(current_date))) AS g(y)
+    WHERE b.period_kind = 'year'
+)
+SELECT s.source_id, s.period_kind, s.period,
+       CASE WHEN l.period IS NOT NULL THEN 'loaded' WHEN s.expected THEN 'missing' ELSE 'not_yet_expected' END AS status
+FROM spine s LEFT JOIN loaded l ON l.source_id = s.source_id AND l.period = s.period;
+
+-- Airport x month activity per traffic source. 0 = source month loaded and no activity;
+-- NULL = the source month is not in the DB (unknown). Never coalesce NULL to 0 downstream.
+CREATE OR REPLACE VIEW v_airport_month_activity AS
+WITH months AS (
+    SELECT source_id, period, CAST(period || '-01' AS DATE) AS month, status
+    FROM v_source_period_status WHERE source_id IN ('bts_t100_segment', 'bts_ontime', 'faa_atads_ops')
+), t100 AS (
+    SELECT origin_airport_id AS airport_id, _period AS period, sum(departures_performed) AS deps, sum(passengers) AS pax
+    FROM t100_segment GROUP BY ALL
+), ot AS (
+    SELECT origin_airport_id AS airport_id, _period AS period, count(*) FILTER (WHERE cancelled = 0) AS deps,
+           NULL::DOUBLE AS pax
+    FROM ontime_flight GROUP BY ALL            -- operated (not cancelled) reporting-carrier departures
+), atads AS (
+    SELECT x.airport_id, a._period AS period, sum(a.total_operations) AS deps, NULL::DOUBLE AS pax
+    FROM atads_airport_ops a JOIN xref_faa_lid x ON x.faa_lid = a.locid GROUP BY ALL   -- tower OPERATIONS, not departures
+)
+-- activity = T-100 departures performed | On-Time operated departures | ATADS tower operations (arr+dep, all users).
+-- For ATADS, 0 is only meaningful for towered airports; non-towered airports are excluded below.
+SELECT d.airport_id, d.current_code, m.source_id, m.month, m.status AS source_month_status,
+       CASE m.source_id WHEN 'faa_atads_ops' THEN 'tower_operations' ELSE 'departures' END AS activity_measure,
+       CASE WHEN m.status = 'loaded' THEN coalesce(x.deps, 0) END AS activity,
+       CASE WHEN m.status = 'loaded' AND m.source_id = 'bts_t100_segment' THEN coalesce(x.pax, 0) END AS passengers
+FROM dim_airport d
+CROSS JOIN months m
+LEFT JOIN (SELECT 'bts_t100_segment' AS source_id, * FROM t100 UNION ALL SELECT 'bts_ontime', * FROM ot
+           UNION ALL SELECT 'faa_atads_ops', * FROM atads) x
+       ON x.airport_id = d.airport_id AND x.period = m.period AND x.source_id = m.source_id
+WHERE d.country = 'US'
+  AND (m.source_id <> 'faa_atads_ops' OR d.airport_id IN (SELECT x.airport_id FROM atads_airport_ops a JOIN xref_faa_lid x ON x.faa_lid = a.locid));
+
+-- ---------------------------------------------------------------- FAA ATADS (tower operations) — NOT the same as BTS flights
+CREATE OR REPLACE VIEW v_atads_airport_ops AS
+SELECT a.*, make_date(a.year, a.month, 1) AS period_month,
+       CASE WHEN a.month >= 10 THEN a.year + 1 ELSE a.year END AS fiscal_year,
+       x.airport_id, x.current_code AS bts_code
+FROM atads_airport_ops a LEFT JOIN xref_faa_lid x ON x.faa_lid = a.locid;
+
+-- ---------------------------------------------------------------- infrastructure investment records
+-- Different record types are NOT additive: awarded grants (money obligated), NPIAS need estimates
+-- (planning figures), curated projects (documented plans/works). Never sum amount across record_type.
+CREATE OR REPLACE VIEW v_faa_grant AS
+SELECT g.*, x.airport_id, x.current_code AS bts_code FROM faa_grant g LEFT JOIN xref_faa_lid x ON x.faa_lid = g.locid;
+
+CREATE OR REPLACE VIEW v_airport_investment_records AS
+-- status domain: awarded | announced | planned_need_estimate | proposed | planned | under_construction | completed | in_effect
+SELECT 'faa_grant' AS record_type, CASE WHEN g.award_date IS NULL THEN 'announced' ELSE 'awarded' END AS status, g.airport_id, g.locid, g.fiscal_year,
+       g.award_date AS record_date, g.total_amount AS amount_usd, g.project_summary AS description,
+       g.grant_number AS record_key, 'faa_grants' AS source_id, g._vintage_id
+FROM v_faa_grant g
+UNION ALL
+SELECT 'npias_development_estimate', 'planned_need_estimate', x.airport_id, n.locid, NULL,
+       NULL, n.development_estimate, 'NPIAS ' || n.npias_cycle || ' 5-year AIP-eligible development estimate (role: ' ||
+       coalesce(n.role, n.hub, '?') || ')', n.locid || ':' || n.npias_cycle, 'faa_npias', n._vintage_id
+FROM npias_airport n LEFT JOIN xref_faa_lid x ON x.faa_lid = n.locid
+UNION ALL
+SELECT 'npias_new_airport_estimate', 'planned_need_estimate', NULL, n.locid, NULL, NULL, n.development_estimate,
+       'NPIAS ' || n.npias_cycle || ' proposed new/replacement airport', n.locid || ':' || n.npias_cycle, 'faa_npias', n._vintage_id
+FROM npias_new_airport n
+UNION ALL
+SELECT 'curated_project', c.status, x.airport_id, c.airport_iata, NULL,
+       TRY_CAST(c.effective_from AS DATE), NULL, c.item || coalesce(' — ' || c.value || ' ' || c.unit, ''),
+       c.airport_iata || ':' || c.item, 'curated_constraints', c._vintage_id
+FROM curated_constraint c
+LEFT JOIN (SELECT DISTINCT airport_id, unnest(all_codes) AS code FROM dim_airport WHERE country = 'US') x ON x.code = c.airport_iata
+WHERE c.category IN ('terminal_project', 'runway_project', 'master_plan');
+
+-- ---------------------------------------------------------------- geography & regional economy
+-- County name normaliser (NASR "ST LOUIS" vs BEA "St. Louis"; suffixes differ by state).
+CREATE OR REPLACE MACRO norm_county(x) AS
+    regexp_replace(replace(regexp_replace(upper(coalesce(x, '')),
+        ' (COUNTY|PARISH|BOROUGH|CENSUS AREA|MUNICIPALITY|CITY AND BOROUGH|CITY AND COUNTY|MUNICIPIO|\(INDEPENDENT CITY\))$', ''),
+        'SAINT ', 'ST '), '[^A-Z]', '', 'g');
+
+CREATE OR REPLACE TABLE dim_county AS
+SELECT DISTINCT geofips AS county_fips,
+       trim(regexp_replace(geoname, ',[^,]*$', '')) AS county_name,
+       trim(replace(regexp_extract(geoname, ',\s*([A-Z]{2})\*?$', 1), '*', '')) AS state_abr,
+       geoname LIKE '%+%' AS is_bea_combination_area
+FROM bea_county_income WHERE right(geofips, 3) <> '000' AND left(geofips, 2) NOT IN ('00', '91', '92', '93', '94', '95', '96', '97', '98');
+
+-- Airport -> county (FAA NASR official county) -> CBSA. match_rule documents how each link was made.
+CREATE OR REPLACE TABLE xref_airport_county AS
+WITH apt AS (
+    SELECT d.airport_id, n.arpt_id AS faa_lid, n.county_name AS nasr_county, coalesce(nullif(n.county_assoc_state, ''), n.state_code) AS st
+    FROM dim_airport d JOIN nasr_airport n ON n.arpt_id = d.faa_lid AND n.site_type_code = 'A'
+), direct AS (
+    SELECT a.*, c.county_fips, 'nasr_county_name' AS match_rule
+    FROM apt a JOIN dim_county c ON c.state_abr = a.st AND norm_county(c.county_name) = norm_county(a.nasr_county)
+), override AS ( -- airport-level geography overrides (e.g. Connecticut planning regions)
+    SELECT a.*, o.county_fips, 'reference_airport_override' AS match_rule
+    FROM apt a JOIN ref_airport_geo_override o ON o.faa_lid = a.faa_lid
+), alias AS (    -- documented renames (data/reference/county_name_aliases.csv)
+    SELECT a.*, r.county_fips, 'reference_alias' AS match_rule
+    FROM apt a JOIN ref_county_name_alias r ON r.state_abr = a.st AND upper(r.nasr_county_name) = upper(a.nasr_county)
+), combo AS (   -- BEA combination areas, e.g. "Albemarle + Charlottesville, VA*"
+    SELECT a.*, c.county_fips, 'bea_combination_area' AS match_rule
+    FROM apt a JOIN dim_county c ON c.state_abr = a.st AND c.is_bea_combination_area
+         AND list_contains(list_transform(string_split(c.county_name, '+'), lambda s: norm_county(trim(s))), norm_county(a.nasr_county))
+    WHERE a.airport_id NOT IN (SELECT airport_id FROM direct UNION SELECT airport_id FROM alias)
+)
+SELECT x.*, cb.cbsa_code, cb.cbsa_title, cb.metro_micro, cb.csa_code, cb.csa_title, cb.central_outlying
+FROM (SELECT * FROM override UNION ALL SELECT * FROM direct UNION ALL SELECT * FROM alias UNION ALL SELECT * FROM combo) x
+LEFT JOIN cbsa_county cb ON cb.county_fips = x.county_fips
+QUALIFY row_number() OVER (PARTITION BY x.airport_id ORDER BY x.match_rule = 'reference_airport_override' DESC, x.match_rule = 'reference_alias' DESC, x.match_rule, x.county_fips) = 1;
+
+CREATE OR REPLACE VIEW v_county_econ_annual AS
+SELECT geofips AS county_fips, year,
+       max(value) FILTER (WHERE line_code = 2) AS population,
+       max(value) FILTER (WHERE line_code = 1) * 1000 AS personal_income_usd,      -- source unit: thousands of dollars
+       max(value) FILTER (WHERE line_code = 3) AS per_capita_income_usd,
+       string_agg(DISTINCT value_flag, ',') FILTER (WHERE value_flag IS NOT NULL) AS suppression_flags
+FROM bea_county_income WHERE right(geofips, 3) <> '000' GROUP BY ALL;
+
+-- CBSA totals = sum of member counties (population & income are additive; per-capita is recomputed).
+CREATE OR REPLACE VIEW v_cbsa_econ_annual AS
+SELECT cb.cbsa_code, any_value(cb.cbsa_title) AS cbsa_title, any_value(cb.metro_micro) AS metro_micro, e.year,
+       sum(e.population) AS population, sum(e.personal_income_usd) AS personal_income_usd,
+       sum(e.personal_income_usd) / nullif(sum(e.population), 0) AS per_capita_income_usd,
+       count(*) AS counties, count(*) FILTER (WHERE e.population IS NULL) AS counties_missing_population
+FROM cbsa_county cb JOIN v_county_econ_annual e ON e.county_fips = cb.county_fips
+GROUP BY cb.cbsa_code, e.year;
+
+-- Airport's HOME county / CBSA economy. A CBSA is an administrative proxy for the market area,
+-- not a measured catchment (multi-airport regions share a CBSA; travellers cross CBSA borders).
+CREATE OR REPLACE VIEW v_airport_area_econ AS
+SELECT x.airport_id, d.current_code, x.county_fips, x.cbsa_code, x.cbsa_title, x.metro_micro, x.match_rule,
+       c.year, c.population AS county_population, c.personal_income_usd AS county_personal_income_usd,
+       m.population AS cbsa_population, m.personal_income_usd AS cbsa_personal_income_usd,
+       m.per_capita_income_usd AS cbsa_per_capita_income_usd
+FROM xref_airport_county x
+JOIN dim_airport d USING (airport_id)
+LEFT JOIN v_county_econ_annual c ON c.county_fips = x.county_fips
+LEFT JOIN v_cbsa_econ_annual m ON m.cbsa_code = x.cbsa_code AND m.year = c.year;

@@ -167,3 +167,123 @@ sql = """WITH t AS (SELECT airport_id, total_enplanements FROM v_taf_enplanement
                 '% of ' || count(*) || '; median ratio ' || round(median(total_enplanements / enplanements), 3)
          FROM t JOIN f USING (airport_id)"""
 purpose = "Semantic check: TAF total = domestic + international columns (guards column-meaning errors)"
+
+[[requirement]]
+id = "ontime_12_contiguous_months"
+type = "contiguous_months"
+source_id = "bts_ontime"
+min_months = 12
+purpose = "Full annual cycle of delay/taxi/peaking data (seasonality) without gaps"
+
+[[requirement]]
+id = "no_missing_expected_periods"
+type = "sql_assert"
+sql = """SELECT count(*) FILTER (WHERE status = 'missing') = 0,
+                coalesce(string_agg(source_id || ':' || period, ', ') FILTER (WHERE status = 'missing'), 'none missing')
+         FROM v_source_period_status
+         -- documented publisher gaps (not pipeline failures): FAA posted no CY2021-2024 enplanement workbooks;
+         -- CY2024 values are available through the CY2025 workbook's prior-year column (v_faa_enplanements_annual)
+         WHERE NOT (source_id = 'faa_enplanements' AND period IN ('2021', '2022', '2023', '2024'))"""
+purpose = "Gaps inside the held range are visible (missing != zero activity); known publisher gaps are listed explicitly"
+
+[[requirement]]
+id = "ontime_reporting_carrier_set_stable"
+type = "sql_assert"
+sql = """WITH m AS (SELECT _period, count(DISTINCT reporting_airline) AS n, count(*) AS flights FROM ontime_flight GROUP BY 1),
+              d AS (SELECT _period, n, flights, abs(n - lag(n) OVER (ORDER BY _period)) AS dn,
+                           flights / lag(flights) OVER (ORDER BY _period) AS ratio FROM m)
+         SELECT coalesce(max(dn), 0) <= 2 AND coalesce(min(ratio), 1) > 0.75 AND coalesce(max(ratio), 1) < 1.33,
+                'carriers/month ' || min(n) || '-' || max(n) || '; max carrier-count change ' || coalesce(max(dn), 0) ||
+                '; month-over-month flight ratio ' || round(coalesce(min(ratio),1), 3) || '-' || round(coalesce(max(ratio),1), 3)
+         FROM d"""
+purpose = "Consistency across months: reporting-carrier population and volume do not jump (a jump = coverage change)"
+
+[[requirement]]
+id = "atads_24_contiguous_months"
+type = "contiguous_months"
+source_id = "faa_atads_ops"
+min_months = 24
+purpose = "All-user tower operations (incl. GA/military) monthly series for congestion & activity"
+
+[[requirement]]
+id = "large_medium_hubs_in_atads"
+type = "population_covered"
+population_sql = "SELECT coalesce(CAST(airport_id AS VARCHAR), 'unmapped LID ' || locid) FROM v_faa_enplanements_annual WHERE cy = 2025 AND hub IN ('L','M')"
+covered_sql = "SELECT CAST(airport_id AS VARCHAR) FROM v_atads_airport_ops WHERE year = 2026"
+min_share = 0.98
+purpose = "Every large/medium hub is towered and has monthly operations"
+
+[[requirement]]
+id = "atads_consistent_with_taf_history"
+type = "sql_assert"
+sql = """WITH a AS (SELECT airport_id, sum(total_operations) AS ops FROM v_atads_airport_ops WHERE fiscal_year = 2024
+                    GROUP BY 1 HAVING count(*) = 12),
+              t AS (SELECT airport_id, total_ops FROM v_taf_operations WHERE fiscal_year = 2024 AND record_type = 'historical')
+         SELECT avg(CASE WHEN abs(ops / total_ops - 1) <= 0.03 THEN 1 ELSE 0 END) >= 0.9,
+                'towered airports with ATADS FY2024 within 3% of TAF FY2024 history: ' ||
+                round(100 * avg(CASE WHEN abs(ops / total_ops - 1) <= 0.03 THEN 1 ELSE 0 END), 1) || '% of ' || count(*) ||
+                '; median ratio ' || round(median(ops / total_ops), 4)
+         FROM a JOIN t USING (airport_id) WHERE t.total_ops > 10000"""
+purpose = "Cross-source semantic check: tower counts agree with FAA TAF historical operations"
+
+[[requirement]]
+id = "grants_resolve_to_airports"
+type = "sql_assert"
+sql = """SELECT sum(total_amount) FILTER (WHERE airport_id IS NOT NULL) / sum(total_amount) >= 0.85,
+                'share of grant dollars resolving to a BTS airport_id: ' ||
+                round(100 * sum(total_amount) FILTER (WHERE airport_id IS NOT NULL) / sum(total_amount), 1) ||
+                '% (unresolved = GA airports never seen in BTS traffic, statewide/system grants)'
+         FROM v_faa_grant"""
+purpose = "Investment dollars attach to the airport identity layer (commercial airports)"
+
+[[requirement]]
+id = "grants_commercial_airports_resolve"
+type = "sql_assert"
+sql = """SELECT count(*) FILTER (WHERE g.airport_id IS NULL) = 0,
+                'hub airports with grants but no airport_id: ' || count(*) FILTER (WHERE g.airport_id IS NULL)
+         FROM v_faa_grant g JOIN npias_airport n ON n.locid = g.locid WHERE n.hub IN ('L','M','S')"""
+purpose = "No hub airport's grants are orphaned"
+
+[[requirement]]
+id = "npias_hubs_complete"
+type = "population_covered"
+population_sql = "SELECT coalesce(CAST(airport_id AS VARCHAR), 'unmapped LID ' || locid) FROM v_faa_enplanements_annual WHERE cy = 2025 AND hub IN ('L','M','S','N')"
+covered_sql = "SELECT CAST(x.airport_id AS VARCHAR) FROM npias_airport n JOIN xref_faa_lid x ON x.faa_lid = n.locid"
+min_share = 0.98
+purpose = "Every commercial-service airport has its NPIAS role and development estimate"
+
+[[requirement]]
+id = "grant_numbers_unique_across_years"
+type = "sql_assert"
+sql = """SELECT count(*) = 0, count(*) || ' grant numbers appearing in more than one fiscal-year file'
+         FROM (SELECT grant_number FROM faa_grant GROUP BY 1 HAVING count(*) > 1)"""
+purpose = "No double counting of a grant across FY workbooks"
+
+[[requirement]]
+id = "commercial_airports_have_county_and_cbsa"
+type = "sql_assert"
+sql = """WITH h AS (SELECT DISTINCT e.airport_id FROM v_faa_enplanements_annual e JOIN dim_airport d USING (airport_id)
+                    WHERE e.cy = 2025 AND e.hub IN ('L','M','S','N') AND d.state_abr NOT IN ('PR','VI','GU','AS','MP'))  -- BEA covers states + DC only
+         SELECT count(*) FILTER (WHERE x.county_fips IS NOT NULL) >= 0.98 * count(*),
+                'commercial airports with county: ' || count(*) FILTER (WHERE x.county_fips IS NOT NULL) || '/' || count(*) ||
+                '; in a CBSA: ' || count(*) FILTER (WHERE x.cbsa_code IS NOT NULL) ||
+                '; unmatched: ' || coalesce(string_agg(d.current_code, ',') FILTER (WHERE x.county_fips IS NULL), '-')
+         FROM h LEFT JOIN xref_airport_county x USING (airport_id) LEFT JOIN dim_airport d USING (airport_id)"""
+purpose = "Every commercial airport attaches to an official county (and metro area where one exists)"
+
+[[requirement]]
+id = "econ_series_recent_and_long"
+type = "sql_assert"
+sql = """SELECT max(year) >= 2023 AND min(year) <= 2000,
+                'BEA county series ' || min(year) || '..' || max(year) || '; counties ' || count(DISTINCT county_fips)
+         FROM v_county_econ_annual WHERE population IS NOT NULL"""
+purpose = "Population & income growth computable over long and recent windows"
+
+[[requirement]]
+id = "cbsa_population_plausible"
+type = "sql_assert"
+sql = """SELECT sum(population) FILTER (WHERE metro_micro LIKE 'Metro%') / (SELECT value FROM bea_county_income WHERE geofips = '00000' AND line_code = 2 AND year = (SELECT max(year) FROM bea_county_income)) BETWEEN 0.80 AND 0.90,
+                'share of US population in metro CBSAs (latest year): ' ||
+                round(100 * sum(population) FILTER (WHERE metro_micro LIKE 'Metro%') / (SELECT value FROM bea_county_income WHERE geofips = '00000' AND line_code = 2 AND year = (SELECT max(year) FROM bea_county_income)), 1) || '%'
+         FROM v_cbsa_econ_annual WHERE year = (SELECT max(year) FROM bea_county_income)"""
+purpose = "County->CBSA aggregation sanity check (~86% of Americans live in metro areas)"

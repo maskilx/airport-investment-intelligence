@@ -198,3 +198,59 @@ def test_build_with_no_data_still_produces_queryable_schema(tmp_path):
             pass                                    # binds and runs; empty results, not errors
     assert {r[3] for r in c.execute("SELECT * FROM v_source_freshness").fetchall()} == {None}
     assert c.execute("SELECT count(*) FROM v_source_freshness WHERE freshness = 'MISSING'").fetchone()[0] == len(registry(paths))
+
+
+def test_missing_vs_zero_activity(con):
+    # every loaded month gives 0 (not NULL) for an airport with no activity that month
+    nulls = con.execute("""SELECT count(*) FROM v_airport_month_activity
+                           WHERE source_month_status = 'loaded' AND activity IS NULL""").fetchone()[0]
+    assert nulls == 0
+    zeros = con.execute("""SELECT count(*) FROM v_airport_month_activity
+                           WHERE source_id = 'bts_ontime' AND source_month_status = 'loaded' AND activity = 0""").fetchone()[0]
+    assert zeros > 0                                    # most small airports have no reporting-carrier flights
+    assert con.execute("SELECT count(*) FROM v_source_period_status WHERE status = 'missing' AND period_kind = 'month'").fetchone()[0] == 0
+
+
+# ---------------------------------------------------------------- Phase 1.1 sources
+def test_atads_matches_report_totals_and_taf(con):
+    assert con.execute("SELECT count(*) FROM validation_check WHERE source_id = 'faa_atads_ops' "
+                       "AND name = 'rows_sum_to_report_total' AND NOT passed").fetchone()[0] == 0
+    lax = con.execute("""SELECT sum(total_operations) FROM v_atads_airport_ops WHERE locid = 'LAX' AND fiscal_year = 2024""").fetchone()[0]
+    taf = con.execute("""SELECT total_ops FROM v_taf_operations WHERE locid = 'LAX' AND fiscal_year = 2024""").fetchone()[0]
+    assert abs(lax / taf - 1) < 0.01
+
+
+def test_atads_and_ontime_are_not_conflated(con):
+    m = dict(con.execute("""SELECT source_id, any_value(activity_measure) FROM v_airport_month_activity GROUP BY 1""").fetchall())
+    assert m["faa_atads_ops"] == "tower_operations" and m["bts_ontime"] == "departures"
+
+
+def test_grant_status_and_totals(con):
+    st = dict(con.execute("SELECT status, count(*) FROM v_airport_investment_records WHERE record_type = 'faa_grant' GROUP BY 1").fetchall())
+    assert set(st) <= {"awarded", "announced"} and st["awarded"] > 10_000
+    assert con.execute("SELECT count(*) FROM validation_check WHERE source_id = 'faa_grants' "
+                       "AND name = 'total_equals_sum_of_programs' AND NOT passed").fetchone()[0] == 0
+    # NPIAS figures are labelled as planning estimates, never as awarded money
+    assert con.execute("""SELECT count(*) FROM v_airport_investment_records
+                          WHERE record_type LIKE 'npias%' AND status <> 'planned_need_estimate'""").fetchone()[0] == 0
+
+
+def test_airport_to_county_to_cbsa(con):
+    got = dict((r[0], r[1:]) for r in con.execute("""SELECT d.current_code, x.county_fips, x.cbsa_code FROM xref_airport_county x
+        JOIN dim_airport d USING (airport_id) WHERE d.current_code IN ('BOS', 'SNA', 'SFO', 'ANC', 'MIA', 'ORF')""").fetchall())
+    assert got["BOS"] == ("25025", "14460")       # Suffolk County -> Boston-Cambridge-Newton
+    assert got["SNA"][0] == "06059"               # Orange County, CA
+    assert got["SFO"][0] == "06081"               # San Mateo County
+    assert got["MIA"][0] == "12086"               # NASR 'DADE' resolved via documented alias
+    assert got["ORF"][0] == "51710"               # Virginia independent city
+    ct = con.execute("""SELECT x.county_fips, x.cbsa_code FROM xref_airport_county x JOIN dim_airport d USING (airport_id)
+                        WHERE d.current_code = 'BDL'""").fetchone()
+    assert ct == ("09110", "25540")               # CT planning region (2022+) -> Hartford CBSA
+
+
+def test_q5_investment_context(con):
+    (_, cols, rows), = run_file(con, EXAMPLES / "q5_investment_and_region_context.sql")
+    by = {r[0]: dict(zip(cols, r)) for r in rows}
+    assert {"BOS", "BDL", "PVD"} <= set(by)
+    for k in ("grants_awarded_fy21_25_musd", "npias_need_estimate_musd", "atads_ops_fy2025", "cbsa_pop_2024"):
+        assert by["BOS"][k] is not None, k

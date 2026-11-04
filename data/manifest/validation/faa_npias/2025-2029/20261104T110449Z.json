@@ -1,0 +1,211 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "npias_airport",
+   "value": null
+  },
+  {
+   "detail": "3287 rows, expected [3000, 4000]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "npias_airport",
+   "value": 3287
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:locid",
+   "passed": true,
+   "severity": "error",
+   "table": "npias_airport",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:npias_cycle",
+   "passed": true,
+   "severity": "error",
+   "table": "npias_airport",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:locid",
+   "passed": true,
+   "severity": "error",
+   "table": "npias_airport",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:development_estimate",
+   "passed": true,
+   "severity": "error",
+   "table": "npias_airport",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:enplaned",
+   "passed": true,
+   "severity": "error",
+   "table": "npias_airport",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:based_aircraft",
+   "passed": true,
+   "severity": "error",
+   "table": "npias_airport",
+   "value": 0
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "npias_new_airport",
+   "value": null
+  },
+  {
+   "detail": "5 rows, expected [1, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "npias_new_airport",
+   "value": 5
+  },
+  {
+   "detail": "390 airports with a hub class",
+   "name": "hub_airports_present",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 390
+  },
+  {
+   "detail": "national 5-yr development estimate = $67,564,676,493",
+   "name": "national_total_plausible",
+   "passed": true,
+   "severity": "warning",
+   "table": null,
+   "value": 67564676493.0
+  }
+ ],
+ "period": "2025-2029",
+ "row_counts": {
+  "npias_airport": 3287,
+  "npias_new_airport": 5
+ },
+ "rules_version": "1",
+ "schemas": {
+  "npias_airport": [
+   [
+    "state",
+    "VARCHAR"
+   ],
+   [
+    "city",
+    "VARCHAR"
+   ],
+   [
+    "airport",
+    "VARCHAR"
+   ],
+   [
+    "locid",
+    "VARCHAR"
+   ],
+   [
+    "ownership",
+    "VARCHAR"
+   ],
+   [
+    "svc_lvl",
+    "VARCHAR"
+   ],
+   [
+    "hub",
+    "VARCHAR"
+   ],
+   [
+    "role",
+    "VARCHAR"
+   ],
+   [
+    "enplaned",
+    "BIGINT"
+   ],
+   [
+    "based_aircraft",
+    "BIGINT"
+   ],
+   [
+    "development_estimate",
+    "DOUBLE"
+   ],
+   [
+    "npias_cycle",
+    "VARCHAR"
+   ],
+   [
+    "enplaned_basis",
+    "VARCHAR"
+   ]
+  ],
+  "npias_new_airport": [
+   [
+    "state",
+    "VARCHAR"
+   ],
+   [
+    "city",
+    "VARCHAR"
+   ],
+   [
+    "airport",
+    "VARCHAR"
+   ],
+   [
+    "locid",
+    "VARCHAR"
+   ],
+   [
+    "category_upon_opening",
+    "VARCHAR"
+   ],
+   [
+    "fy_anticipated_to_open",
+    "VARCHAR"
+   ],
+   [
+    "type_of_new_airport",
+    "VARCHAR"
+   ],
+   [
+    "development_estimate",
+    "DOUBLE"
+   ],
+   [
+    "npias_cycle",
+    "VARCHAR"
+   ]
+  ]
+ },
+ "source_id": "faa_npias",
+ "status": "pass",
+ "vintage_id": "20261104T110449Z"
+}

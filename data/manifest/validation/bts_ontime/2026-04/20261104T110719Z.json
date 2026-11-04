@@ -1,0 +1,564 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "ontime_flight",
+   "value": null
+  },
+  {
+   "detail": "597919 rows, expected [100000, 1000000]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "ontime_flight",
+   "value": 597919
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:year",
+   "passed": true,
+   "severity": "error",
+   "table": "ontime_flight",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:month",
+   "passed": true,
+   "severity": "error",
+   "table": "ontime_flight",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:flight_date",
+   "passed": true,
+   "severity": "error",
+   "table": "ontime_flight",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:origin",
+   "passed": true,
+   "severity": "error",
+   "table": "ontime_flight",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:dest",
+   "passed": true,
+   "severity": "error",
+   "table": "ontime_flight",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:origin_airport_id",
+   "passed": true,
+   "severity": "error",
+   "table": "ontime_flight",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:dest_airport_id",
+   "passed": true,
+   "severity": "error",
+   "table": "ontime_flight",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:reporting_airline",
+   "passed": true,
+   "severity": "error",
+   "table": "ontime_flight",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:cancelled",
+   "passed": true,
+   "severity": "error",
+   "table": "ontime_flight",
+   "value": 0
+  },
+  {
+   "detail": "0 rows outside 2026-04 (incl. NULL)",
+   "name": "period_matches_content",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 0
+  },
+  {
+   "detail": "0 rows with cancelled not in (0,1)",
+   "name": "cancelled_is_flag",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 0
+  }
+ ],
+ "period": "2026-04",
+ "row_counts": {
+  "ontime_flight": 597919
+ },
+ "rules_version": "1",
+ "schemas": {
+  "ontime_flight": [
+   [
+    "year",
+    "INTEGER"
+   ],
+   [
+    "quarter",
+    "BIGINT"
+   ],
+   [
+    "month",
+    "INTEGER"
+   ],
+   [
+    "day_of_month",
+    "BIGINT"
+   ],
+   [
+    "day_of_week",
+    "BIGINT"
+   ],
+   [
+    "flight_date",
+    "DATE"
+   ],
+   [
+    "reporting_airline",
+    "VARCHAR"
+   ],
+   [
+    "dot_id_reporting_airline",
+    "BIGINT"
+   ],
+   [
+    "iata_code_reporting_airline",
+    "VARCHAR"
+   ],
+   [
+    "tail_number",
+    "VARCHAR"
+   ],
+   [
+    "flight_number_reporting_airline",
+    "VARCHAR"
+   ],
+   [
+    "origin_airport_id",
+    "INTEGER"
+   ],
+   [
+    "origin_airport_seq_id",
+    "BIGINT"
+   ],
+   [
+    "origin_city_market_id",
+    "BIGINT"
+   ],
+   [
+    "origin",
+    "VARCHAR"
+   ],
+   [
+    "origin_city_name",
+    "VARCHAR"
+   ],
+   [
+    "origin_state",
+    "VARCHAR"
+   ],
+   [
+    "origin_state_fips",
+    "VARCHAR"
+   ],
+   [
+    "origin_state_name",
+    "VARCHAR"
+   ],
+   [
+    "origin_wac",
+    "BIGINT"
+   ],
+   [
+    "dest_airport_id",
+    "INTEGER"
+   ],
+   [
+    "dest_airport_seq_id",
+    "BIGINT"
+   ],
+   [
+    "dest_city_market_id",
+    "BIGINT"
+   ],
+   [
+    "dest",
+    "VARCHAR"
+   ],
+   [
+    "dest_city_name",
+    "VARCHAR"
+   ],
+   [
+    "dest_state",
+    "VARCHAR"
+   ],
+   [
+    "dest_state_fips",
+    "VARCHAR"
+   ],
+   [
+    "dest_state_name",
+    "VARCHAR"
+   ],
+   [
+    "dest_wac",
+    "BIGINT"
+   ],
+   [
+    "crs_dep_time",
+    "VARCHAR"
+   ],
+   [
+    "dep_time",
+    "VARCHAR"
+   ],
+   [
+    "dep_delay",
+    "DOUBLE"
+   ],
+   [
+    "dep_delay_minutes",
+    "DOUBLE"
+   ],
+   [
+    "dep_del15",
+    "DOUBLE"
+   ],
+   [
+    "departure_delay_groups",
+    "BIGINT"
+   ],
+   [
+    "dep_time_blk",
+    "VARCHAR"
+   ],
+   [
+    "taxi_out",
+    "DOUBLE"
+   ],
+   [
+    "wheels_off",
+    "VARCHAR"
+   ],
+   [
+    "wheels_on",
+    "VARCHAR"
+   ],
+   [
+    "taxi_in",
+    "DOUBLE"
+   ],
+   [
+    "crs_arr_time",
+    "VARCHAR"
+   ],
+   [
+    "arr_time",
+    "VARCHAR"
+   ],
+   [
+    "arr_delay",
+    "DOUBLE"
+   ],
+   [
+    "arr_delay_minutes",
+    "DOUBLE"
+   ],
+   [
+    "arr_del15",
+    "DOUBLE"
+   ],
+   [
+    "arrival_delay_groups",
+    "BIGINT"
+   ],
+   [
+    "arr_time_blk",
+    "VARCHAR"
+   ],
+   [
+    "cancelled",
+    "DOUBLE"
+   ],
+   [
+    "cancellation_code",
+    "VARCHAR"
+   ],
+   [
+    "diverted",
+    "DOUBLE"
+   ],
+   [
+    "crs_elapsed_time",
+    "DOUBLE"
+   ],
+   [
+    "actual_elapsed_time",
+    "DOUBLE"
+   ],
+   [
+    "air_time",
+    "DOUBLE"
+   ],
+   [
+    "flights",
+    "DOUBLE"
+   ],
+   [
+    "distance",
+    "DOUBLE"
+   ],
+   [
+    "distance_group",
+    "BIGINT"
+   ],
+   [
+    "carrier_delay",
+    "DOUBLE"
+   ],
+   [
+    "weather_delay",
+    "DOUBLE"
+   ],
+   [
+    "nas_delay",
+    "DOUBLE"
+   ],
+   [
+    "security_delay",
+    "DOUBLE"
+   ],
+   [
+    "late_aircraft_delay",
+    "DOUBLE"
+   ],
+   [
+    "first_dep_time",
+    "VARCHAR"
+   ],
+   [
+    "total_add_g_time",
+    "DOUBLE"
+   ],
+   [
+    "longest_add_g_time",
+    "DOUBLE"
+   ],
+   [
+    "div_airport_landings",
+    "BIGINT"
+   ],
+   [
+    "div_reached_dest",
+    "DOUBLE"
+   ],
+   [
+    "div_actual_elapsed_time",
+    "DOUBLE"
+   ],
+   [
+    "div_arr_delay",
+    "DOUBLE"
+   ],
+   [
+    "div_distance",
+    "DOUBLE"
+   ],
+   [
+    "div1_airport",
+    "VARCHAR"
+   ],
+   [
+    "div1_airport_id",
+    "BIGINT"
+   ],
+   [
+    "div1_airport_seq_id",
+    "BIGINT"
+   ],
+   [
+    "div1_wheels_on",
+    "VARCHAR"
+   ],
+   [
+    "div1_total_g_time",
+    "DOUBLE"
+   ],
+   [
+    "div1_longest_g_time",
+    "DOUBLE"
+   ],
+   [
+    "div1_wheels_off",
+    "VARCHAR"
+   ],
+   [
+    "div1_tail_num",
+    "VARCHAR"
+   ],
+   [
+    "div2_airport",
+    "VARCHAR"
+   ],
+   [
+    "div2_airport_id",
+    "BIGINT"
+   ],
+   [
+    "div2_airport_seq_id",
+    "BIGINT"
+   ],
+   [
+    "div2_wheels_on",
+    "VARCHAR"
+   ],
+   [
+    "div2_total_g_time",
+    "DOUBLE"
+   ],
+   [
+    "div2_longest_g_time",
+    "DOUBLE"
+   ],
+   [
+    "div2_wheels_off",
+    "VARCHAR"
+   ],
+   [
+    "div2_tail_num",
+    "VARCHAR"
+   ],
+   [
+    "div3_airport",
+    "VARCHAR"
+   ],
+   [
+    "div3_airport_id",
+    "VARCHAR"
+   ],
+   [
+    "div3_airport_seq_id",
+    "VARCHAR"
+   ],
+   [
+    "div3_wheels_on",
+    "VARCHAR"
+   ],
+   [
+    "div3_total_g_time",
+    "VARCHAR"
+   ],
+   [
+    "div3_longest_g_time",
+    "VARCHAR"
+   ],
+   [
+    "div3_wheels_off",
+    "VARCHAR"
+   ],
+   [
+    "div3_tail_num",
+    "VARCHAR"
+   ],
+   [
+    "div4_airport",
+    "VARCHAR"
+   ],
+   [
+    "div4_airport_id",
+    "VARCHAR"
+   ],
+   [
+    "div4_airport_seq_id",
+    "VARCHAR"
+   ],
+   [
+    "div4_wheels_on",
+    "VARCHAR"
+   ],
+   [
+    "div4_total_g_time",
+    "VARCHAR"
+   ],
+   [
+    "div4_longest_g_time",
+    "VARCHAR"
+   ],
+   [
+    "div4_wheels_off",
+    "VARCHAR"
+   ],
+   [
+    "div4_tail_num",
+    "VARCHAR"
+   ],
+   [
+    "div5_airport",
+    "VARCHAR"
+   ],
+   [
+    "div5_airport_id",
+    "VARCHAR"
+   ],
+   [
+    "div5_airport_seq_id",
+    "VARCHAR"
+   ],
+   [
+    "div5_wheels_on",
+    "VARCHAR"
+   ],
+   [
+    "div5_total_g_time",
+    "VARCHAR"
+   ],
+   [
+    "div5_longest_g_time",
+    "VARCHAR"
+   ],
+   [
+    "div5_wheels_off",
+    "VARCHAR"
+   ],
+   [
+    "div5_tail_num",
+    "VARCHAR"
+   ]
+  ]
+ },
+ "source_id": "bts_ontime",
+ "status": "pass",
+ "vintage_id": "20261104T110719Z"
+}

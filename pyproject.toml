@@ -2,7 +2,7 @@
 name = "airport-intel"
 version = "0.1.0"
 description = "Airport Investment Intelligence — data foundation (ingestion, raw archive, validation, DuckDB build)"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "duckdb>=1.1",
     "openpyxl>=3.1",
@@ -21,6 +21,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+airport_data = ["derived.sql", "sources/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

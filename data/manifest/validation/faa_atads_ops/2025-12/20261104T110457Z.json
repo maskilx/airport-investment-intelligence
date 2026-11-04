@@ -1,0 +1,232 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": null
+  },
+  {
+   "detail": "527 rows, expected [400, 700]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 527
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:locid",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:year",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:month",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:total_operations",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:locid+year+month",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:itn_air_carrier",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:itn_air_taxi",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:itn_general_aviation",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:itn_military",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:itn_total",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:local_civil",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:local_military",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:local_total",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 negative values",
+   "name": "non_negative:total_operations",
+   "passed": true,
+   "severity": "error",
+   "table": "atads_airport_ops",
+   "value": 0
+  },
+  {
+   "detail": "0 rows outside 2025-12 (incl. NULL)",
+   "name": "period_matches_content",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 0
+  },
+  {
+   "detail": "parsed [1481178, 533672, 999756, 69177, 3083783, 1004780, 38147, 1042927, 4126710] vs report [1481178, 533672, 999756, 69177, 3083783, 1004780, 38147, 1042927, 4126710]",
+   "name": "rows_sum_to_report_total",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "0 rows whose components do not add up",
+   "name": "component_sums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 0
+  },
+  {
+   "detail": "0 towered airports reporting 0 operations",
+   "name": "zero_operation_rows",
+   "passed": true,
+   "severity": "warning",
+   "table": null,
+   "value": 0
+  }
+ ],
+ "period": "2025-12",
+ "row_counts": {
+  "atads_airport_ops": 527
+ },
+ "rules_version": "1",
+ "schemas": {
+  "atads_airport_ops": [
+   [
+    "year",
+    "INTEGER"
+   ],
+   [
+    "month",
+    "INTEGER"
+   ],
+   [
+    "locid",
+    "VARCHAR"
+   ],
+   [
+    "itn_air_carrier",
+    "BIGINT"
+   ],
+   [
+    "itn_air_taxi",
+    "BIGINT"
+   ],
+   [
+    "itn_general_aviation",
+    "BIGINT"
+   ],
+   [
+    "itn_military",
+    "BIGINT"
+   ],
+   [
+    "itn_total",
+    "BIGINT"
+   ],
+   [
+    "local_civil",
+    "BIGINT"
+   ],
+   [
+    "local_military",
+    "BIGINT"
+   ],
+   [
+    "local_total",
+    "BIGINT"
+   ],
+   [
+    "total_operations",
+    "BIGINT"
+   ]
+  ]
+ },
+ "source_id": "faa_atads_ops",
+ "status": "pass",
+ "vintage_id": "20261104T110457Z"
+}

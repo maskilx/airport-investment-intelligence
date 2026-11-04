@@ -32,7 +32,9 @@ MANIFEST_COLUMNS = ["source_id", "period", "vintage_id", "role", "selected", "st
                     "rules_version", "row_counts", "schema_sha256", "schema", "errors", "warnings"]
 DERIVED_SQL = Path(__file__).with_name("derived.sql")
 DERIVED_DEPENDS_ON = ("t100_segment", "ontime_flight", "bts_lookup", "oa_airport", "oa_runway", "ref_us_state",
-                      "faa_enplanements", "faa_cargo", "taf_airport", "taf_enplanements", "taf_operations")
+                      "faa_enplanements", "faa_cargo", "taf_airport", "taf_enplanements", "taf_operations",
+                      "atads_airport_ops", "faa_grant", "npias_airport", "curated_constraint",
+                      "nasr_airport", "cbsa_county", "bea_county_income", "ref_county_name_alias", "ref_airport_geo_override")
 # A derived-SQL error is a code bug, not a data problem: it fails the build loudly (old DB stays).
 
 

@@ -55,12 +55,12 @@ class HttpClient:
             urllib.request.HTTPSHandler(context=ctx),
         )
 
-    def request(self, url: str, data: dict[str, str] | None = None) -> Response:
+    def request(self, url: str, data: dict[str, str] | None = None, headers: dict[str, str] | None = None) -> Response:
         body = urllib.parse.urlencode(data).encode() if data is not None else None
         last: Exception | None = None
         for attempt in range(1, self.retries + 1):
             try:
-                req = urllib.request.Request(url, data=body, headers={"User-Agent": self.user_agent})
+                req = urllib.request.Request(url, data=body, headers={"User-Agent": self.user_agent, **(headers or {})})
                 with self._opener.open(req, timeout=self.timeout) as r:
                     payload = r.read()
                     headers = {k.lower(): v for k, v in r.headers.items()}
@@ -79,5 +79,5 @@ class HttpClient:
     def get(self, url: str) -> Response:
         return self.request(url)
 
-    def post(self, url: str, data: dict[str, str]) -> Response:
-        return self.request(url, data)
+    def post(self, url: str, data: dict[str, str], headers: dict[str, str] | None = None) -> Response:
+        return self.request(url, data, headers)

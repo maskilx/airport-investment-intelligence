@@ -1,0 +1,128 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "bea_county_income",
+   "value": null
+  },
+  {
+   "detail": "539112 rows, expected [100000, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "bea_county_income",
+   "value": 539112
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:geofips",
+   "passed": true,
+   "severity": "error",
+   "table": "bea_county_income",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:line_code",
+   "passed": true,
+   "severity": "error",
+   "table": "bea_county_income",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:year",
+   "passed": true,
+   "severity": "error",
+   "table": "bea_county_income",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:geofips+line_code+year",
+   "passed": true,
+   "severity": "error",
+   "table": "bea_county_income",
+   "value": 0
+  },
+  {
+   "detail": "latest US population (340110988.0,)",
+   "name": "us_population_plausible",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "3149 county-level areas",
+   "name": "county_count_plausible",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 3149
+  },
+  {
+   "detail": "0 states whose counties don't sum to the state total",
+   "name": "counties_sum_to_states",
+   "passed": true,
+   "severity": "warning",
+   "table": null,
+   "value": 0
+  }
+ ],
+ "period": "latest-release",
+ "row_counts": {
+  "bea_county_income": 539112
+ },
+ "rules_version": "1",
+ "schemas": {
+  "bea_county_income": [
+   [
+    "geofips",
+    "VARCHAR"
+   ],
+   [
+    "geoname",
+    "VARCHAR"
+   ],
+   [
+    "line_code",
+    "INTEGER"
+   ],
+   [
+    "description",
+    "VARCHAR"
+   ],
+   [
+    "unit",
+    "VARCHAR"
+   ],
+   [
+    "year",
+    "INTEGER"
+   ],
+   [
+    "value",
+    "DOUBLE"
+   ],
+   [
+    "value_flag",
+    "VARCHAR"
+   ]
+  ]
+ },
+ "source_id": "bea_cainc1",
+ "status": "pass",
+ "vintage_id": "20261104T113325Z"
+}

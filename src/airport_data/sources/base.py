@@ -66,6 +66,7 @@ class Source(ABC):
     # "latest": each period is a full replacement (snapshots, forecast releases) -> only the newest
     #           valid period is loaded; older ones stay archived (prevents double counting).
     history_mode: str = "accumulate"
+    period_basis: str = "calendar"   # "calendar" | "fiscal" (US federal FY, Oct-Sep) for period_kind="year"
 
     # ---- network ----
     @abstractmethod
@@ -104,7 +105,8 @@ class Source(ABC):
 
     def describe(self) -> dict[str, Any]:
         return {k: getattr(self, k) for k in
-                ("id", "title", "publisher", "license", "homepage", "period_kind", "cadence", "expected_lag_days", "notes")}
+                ("id", "title", "publisher", "license", "homepage", "period_kind", "period_basis", "cadence",
+                  "expected_lag_days", "history_mode", "notes")}
 
 
 # ---------------------------------------------------------------- utilities

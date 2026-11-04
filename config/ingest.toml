@@ -6,7 +6,10 @@
 periods = "2024-01:2026-07"          # 31 months: two full CYs (YoY, FAA cross-check) + latest
 
 [sources.bts_ontime]
-periods = "2025-11,2026-02,2026-05,2026-08"   # one month per season (weather/peaking differ); ~32 MB each
+periods = "2025-09:2026-08"           # 12 consecutive months (~30 MB each); 24 months needs Git LFS first
+
+[sources.faa_atads_ops]
+periods = "2023-10:2026-09"           # FY2024-FY2026 complete; towered-airport operations, ~0.3 MB/month
 
 [sources.bts_lookups]
 periods = "latest"
@@ -20,8 +23,29 @@ periods = "latest"
 [sources.faa_taf]
 periods = "latest"
 
+[sources.faa_grants]
+periods = "available"                 # FY2021+ (consistent grant-detail layout)
+
+[sources.faa_npias]
+periods = "latest"
+
 [sources.ourairports]
 periods = "latest"
+
+[sources.faa_nasr_apt]
+periods = "latest"                    # current 28-day cycle
+
+[sources.census_cbsa]
+periods = "2023"
+
+[sources.bea_cainc1]
+periods = "latest-release"
+
+[sources.ref_county_aliases]
+periods = "current"
+
+[sources.ref_airport_geo_overrides]
+periods = "current"
 
 [sources.ref_us_states]
 periods = "current"

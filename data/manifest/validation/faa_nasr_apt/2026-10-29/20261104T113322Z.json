@@ -1,0 +1,579 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "nasr_airport",
+   "value": null
+  },
+  {
+   "detail": "19434 rows, expected [15000, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "nasr_airport",
+   "value": 19434
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:arpt_id",
+   "passed": true,
+   "severity": "error",
+   "table": "nasr_airport",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:site_no",
+   "passed": true,
+   "severity": "error",
+   "table": "nasr_airport",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:arpt_id",
+   "passed": true,
+   "severity": "error",
+   "table": "nasr_airport",
+   "value": 0
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "nasr_runway",
+   "value": null
+  },
+  {
+   "detail": "23195 rows, expected [15000, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "nasr_runway",
+   "value": 23195
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:site_no",
+   "passed": true,
+   "severity": "error",
+   "table": "nasr_runway",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:rwy_id",
+   "passed": true,
+   "severity": "error",
+   "table": "nasr_runway",
+   "value": 0
+  },
+  {
+   "detail": "0 US facilities without county",
+   "name": "county_present",
+   "passed": true,
+   "severity": "warning",
+   "table": null,
+   "value": 0
+  },
+  {
+   "detail": "1 SITE_NO values shared by >1 facility (publisher defect; key is ARPT_ID)",
+   "name": "site_no_unique",
+   "passed": false,
+   "severity": "warning",
+   "table": null,
+   "value": 1
+  }
+ ],
+ "period": "2026-10-29",
+ "row_counts": {
+  "nasr_airport": 19434,
+  "nasr_runway": 23195
+ },
+ "rules_version": "1",
+ "schemas": {
+  "nasr_airport": [
+   [
+    "eff_date",
+    "VARCHAR"
+   ],
+   [
+    "site_no",
+    "VARCHAR"
+   ],
+   [
+    "site_type_code",
+    "VARCHAR"
+   ],
+   [
+    "state_code",
+    "VARCHAR"
+   ],
+   [
+    "arpt_id",
+    "VARCHAR"
+   ],
+   [
+    "city",
+    "VARCHAR"
+   ],
+   [
+    "country_code",
+    "VARCHAR"
+   ],
+   [
+    "region_code",
+    "VARCHAR"
+   ],
+   [
+    "ado_code",
+    "VARCHAR"
+   ],
+   [
+    "state_name",
+    "VARCHAR"
+   ],
+   [
+    "county_name",
+    "VARCHAR"
+   ],
+   [
+    "county_assoc_state",
+    "VARCHAR"
+   ],
+   [
+    "arpt_name",
+    "VARCHAR"
+   ],
+   [
+    "ownership_type_code",
+    "VARCHAR"
+   ],
+   [
+    "facility_use_code",
+    "VARCHAR"
+   ],
+   [
+    "lat_deg",
+    "VARCHAR"
+   ],
+   [
+    "lat_min",
+    "VARCHAR"
+   ],
+   [
+    "lat_sec",
+    "VARCHAR"
+   ],
+   [
+    "lat_hemis",
+    "VARCHAR"
+   ],
+   [
+    "lat_decimal",
+    "DOUBLE"
+   ],
+   [
+    "long_deg",
+    "VARCHAR"
+   ],
+   [
+    "long_min",
+    "VARCHAR"
+   ],
+   [
+    "long_sec",
+    "VARCHAR"
+   ],
+   [
+    "long_hemis",
+    "VARCHAR"
+   ],
+   [
+    "long_decimal",
+    "DOUBLE"
+   ],
+   [
+    "survey_method_code",
+    "VARCHAR"
+   ],
+   [
+    "elev",
+    "VARCHAR"
+   ],
+   [
+    "elev_method_code",
+    "VARCHAR"
+   ],
+   [
+    "mag_varn",
+    "VARCHAR"
+   ],
+   [
+    "mag_hemis",
+    "VARCHAR"
+   ],
+   [
+    "mag_varn_year",
+    "VARCHAR"
+   ],
+   [
+    "tpa",
+    "VARCHAR"
+   ],
+   [
+    "chart_name",
+    "VARCHAR"
+   ],
+   [
+    "dist_city_to_airport",
+    "VARCHAR"
+   ],
+   [
+    "direction_code",
+    "VARCHAR"
+   ],
+   [
+    "acreage",
+    "VARCHAR"
+   ],
+   [
+    "resp_artcc_id",
+    "VARCHAR"
+   ],
+   [
+    "computer_id",
+    "VARCHAR"
+   ],
+   [
+    "artcc_name",
+    "VARCHAR"
+   ],
+   [
+    "fss_on_arpt_flag",
+    "VARCHAR"
+   ],
+   [
+    "fss_id",
+    "VARCHAR"
+   ],
+   [
+    "fss_name",
+    "VARCHAR"
+   ],
+   [
+    "phone_no",
+    "VARCHAR"
+   ],
+   [
+    "toll_free_no",
+    "VARCHAR"
+   ],
+   [
+    "alt_fss_id",
+    "VARCHAR"
+   ],
+   [
+    "alt_fss_name",
+    "VARCHAR"
+   ],
+   [
+    "alt_toll_free_no",
+    "VARCHAR"
+   ],
+   [
+    "notam_id",
+    "VARCHAR"
+   ],
+   [
+    "notam_flag",
+    "VARCHAR"
+   ],
+   [
+    "activation_date",
+    "VARCHAR"
+   ],
+   [
+    "arpt_status",
+    "VARCHAR"
+   ],
+   [
+    "far_139_type_code",
+    "VARCHAR"
+   ],
+   [
+    "far_139_carrier_ser_code",
+    "VARCHAR"
+   ],
+   [
+    "arff_cert_type_date",
+    "VARCHAR"
+   ],
+   [
+    "nasp_code",
+    "VARCHAR"
+   ],
+   [
+    "asp_anlys_dtrm_code",
+    "VARCHAR"
+   ],
+   [
+    "cust_flag",
+    "VARCHAR"
+   ],
+   [
+    "lndg_rights_flag",
+    "VARCHAR"
+   ],
+   [
+    "joint_use_flag",
+    "VARCHAR"
+   ],
+   [
+    "mil_lndg_flag",
+    "VARCHAR"
+   ],
+   [
+    "inspect_method_code",
+    "VARCHAR"
+   ],
+   [
+    "inspector_code",
+    "VARCHAR"
+   ],
+   [
+    "last_inspection",
+    "VARCHAR"
+   ],
+   [
+    "last_info_response",
+    "VARCHAR"
+   ],
+   [
+    "fuel_types",
+    "VARCHAR"
+   ],
+   [
+    "airframe_repair_ser_code",
+    "VARCHAR"
+   ],
+   [
+    "pwr_plant_repair_ser",
+    "VARCHAR"
+   ],
+   [
+    "bottled_oxy_type",
+    "VARCHAR"
+   ],
+   [
+    "bulk_oxy_type",
+    "VARCHAR"
+   ],
+   [
+    "lgt_sked",
+    "VARCHAR"
+   ],
+   [
+    "bcn_lgt_sked",
+    "VARCHAR"
+   ],
+   [
+    "twr_type_code",
+    "VARCHAR"
+   ],
+   [
+    "seg_circle_mkr_flag",
+    "VARCHAR"
+   ],
+   [
+    "bcn_lens_color",
+    "VARCHAR"
+   ],
+   [
+    "lndg_fee_flag",
+    "VARCHAR"
+   ],
+   [
+    "medical_use_flag",
+    "VARCHAR"
+   ],
+   [
+    "arpt_psn_source",
+    "VARCHAR"
+   ],
+   [
+    "position_src_date",
+    "VARCHAR"
+   ],
+   [
+    "arpt_elev_source",
+    "VARCHAR"
+   ],
+   [
+    "elevation_src_date",
+    "VARCHAR"
+   ],
+   [
+    "contr_fuel_avbl",
+    "VARCHAR"
+   ],
+   [
+    "trns_strg_buoy_flag",
+    "VARCHAR"
+   ],
+   [
+    "trns_strg_hgr_flag",
+    "VARCHAR"
+   ],
+   [
+    "trns_strg_tie_flag",
+    "VARCHAR"
+   ],
+   [
+    "other_services",
+    "VARCHAR"
+   ],
+   [
+    "wind_indcr_flag",
+    "VARCHAR"
+   ],
+   [
+    "icao_id",
+    "VARCHAR"
+   ],
+   [
+    "min_op_network",
+    "VARCHAR"
+   ],
+   [
+    "user_fee_flag",
+    "VARCHAR"
+   ],
+   [
+    "cta",
+    "VARCHAR"
+   ]
+  ],
+  "nasr_runway": [
+   [
+    "eff_date",
+    "VARCHAR"
+   ],
+   [
+    "site_no",
+    "VARCHAR"
+   ],
+   [
+    "site_type_code",
+    "VARCHAR"
+   ],
+   [
+    "state_code",
+    "VARCHAR"
+   ],
+   [
+    "arpt_id",
+    "VARCHAR"
+   ],
+   [
+    "city",
+    "VARCHAR"
+   ],
+   [
+    "country_code",
+    "VARCHAR"
+   ],
+   [
+    "rwy_id",
+    "VARCHAR"
+   ],
+   [
+    "rwy_len",
+    "INTEGER"
+   ],
+   [
+    "rwy_width",
+    "INTEGER"
+   ],
+   [
+    "surface_type_code",
+    "VARCHAR"
+   ],
+   [
+    "cond",
+    "VARCHAR"
+   ],
+   [
+    "treatment_code",
+    "VARCHAR"
+   ],
+   [
+    "pavement_classification",
+    "VARCHAR"
+   ],
+   [
+    "pcn_pcr_number",
+    "VARCHAR"
+   ],
+   [
+    "pavement_type_code",
+    "VARCHAR"
+   ],
+   [
+    "subgrade_strength_code",
+    "VARCHAR"
+   ],
+   [
+    "tire_pres_code",
+    "VARCHAR"
+   ],
+   [
+    "dtrm_method_code",
+    "VARCHAR"
+   ],
+   [
+    "rwy_lgt_code",
+    "VARCHAR"
+   ],
+   [
+    "rwy_len_source",
+    "VARCHAR"
+   ],
+   [
+    "length_source_date",
+    "VARCHAR"
+   ],
+   [
+    "gross_wt_sw",
+    "VARCHAR"
+   ],
+   [
+    "gross_wt_dw",
+    "VARCHAR"
+   ],
+   [
+    "gross_wt_dtw",
+    "VARCHAR"
+   ],
+   [
+    "gross_wt_ddtw",
+    "VARCHAR"
+   ]
+  ]
+ },
+ "source_id": "faa_nasr_apt",
+ "status": "warn",
+ "vintage_id": "20261104T113322Z"
+}

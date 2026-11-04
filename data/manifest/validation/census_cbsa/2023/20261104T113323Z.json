@@ -1,0 +1,100 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "cbsa_county",
+   "value": null
+  },
+  {
+   "detail": "1915 rows, expected [1500, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "cbsa_county",
+   "value": 1915
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:cbsa_code",
+   "passed": true,
+   "severity": "error",
+   "table": "cbsa_county",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:county_fips",
+   "passed": true,
+   "severity": "error",
+   "table": "cbsa_county",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:county_fips",
+   "passed": true,
+   "severity": "error",
+   "table": "cbsa_county",
+   "value": 0
+  }
+ ],
+ "period": "2023",
+ "row_counts": {
+  "cbsa_county": 1915
+ },
+ "rules_version": "1",
+ "schemas": {
+  "cbsa_county": [
+   [
+    "cbsa_code",
+    "VARCHAR"
+   ],
+   [
+    "cbsa_title",
+    "VARCHAR"
+   ],
+   [
+    "metro_micro",
+    "VARCHAR"
+   ],
+   [
+    "csa_code",
+    "VARCHAR"
+   ],
+   [
+    "csa_title",
+    "VARCHAR"
+   ],
+   [
+    "county_fips",
+    "VARCHAR"
+   ],
+   [
+    "county_name",
+    "VARCHAR"
+   ],
+   [
+    "state_name",
+    "VARCHAR"
+   ],
+   [
+    "central_outlying",
+    "VARCHAR"
+   ]
+  ]
+ },
+ "source_id": "census_cbsa",
+ "status": "pass",
+ "vintage_id": "20261104T113323Z"
+}

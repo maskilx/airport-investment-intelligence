@@ -1,0 +1,208 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "faa_grant",
+   "value": null
+  },
+  {
+   "detail": "4855 rows, expected [1000, 10000]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "faa_grant",
+   "value": 4855
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:fiscal_year",
+   "passed": true,
+   "severity": "error",
+   "table": "faa_grant",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:locid",
+   "passed": true,
+   "severity": "error",
+   "table": "faa_grant",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:grant_number",
+   "passed": true,
+   "severity": "error",
+   "table": "faa_grant",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:total_amount",
+   "passed": true,
+   "severity": "error",
+   "table": "faa_grant",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:grant_number",
+   "passed": true,
+   "severity": "error",
+   "table": "faa_grant",
+   "value": 0
+  },
+  {
+   "detail": "0 grants where total_amount != sum of program columns",
+   "name": "total_equals_sum_of_programs",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": 0
+  },
+  {
+   "detail": "unrecognised numeric columns (new funding program?): []",
+   "name": "no_unknown_amount_columns",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": []
+  },
+  {
+   "detail": "0 grants with negative total (deobligation?)",
+   "name": "negative_totals",
+   "passed": true,
+   "severity": "warning",
+   "table": null,
+   "value": 0
+  },
+  {
+   "detail": "0 grants without award date = announced, amounts preliminary (status 'announced')",
+   "name": "announced_not_awarded",
+   "passed": true,
+   "severity": "warning",
+   "table": null,
+   "value": 0
+  },
+  {
+   "detail": "0 grants whose number suffix != FY 2021",
+   "name": "grant_number_fy_suffix",
+   "passed": true,
+   "severity": "warning",
+   "table": null,
+   "value": 0
+  },
+  {
+   "detail": "0 award dates outside FY2021",
+   "name": "award_date_in_fiscal_year",
+   "passed": true,
+   "severity": "warning",
+   "table": null,
+   "value": 0
+  }
+ ],
+ "period": "2021",
+ "row_counts": {
+  "faa_grant": 4855
+ },
+ "rules_version": "1",
+ "schemas": {
+  "faa_grant": [
+   [
+    "fiscal_year",
+    "INTEGER"
+   ],
+   [
+    "state",
+    "VARCHAR"
+   ],
+   [
+    "city",
+    "VARCHAR"
+   ],
+   [
+    "worksite",
+    "VARCHAR"
+   ],
+   [
+    "locid",
+    "VARCHAR"
+   ],
+   [
+    "grant_number",
+    "VARCHAR"
+   ],
+   [
+    "sponsor",
+    "VARCHAR"
+   ],
+   [
+    "award_date",
+    "DATE"
+   ],
+   [
+    "entitlement",
+    "DOUBLE"
+   ],
+   [
+    "discretionary",
+    "DOUBLE"
+   ],
+   [
+    "supp_discretionary",
+    "DOUBLE"
+   ],
+   [
+    "cares",
+    "DOUBLE"
+   ],
+   [
+    "aig",
+    "DOUBLE"
+   ],
+   [
+    "fct",
+    "DOUBLE"
+   ],
+   [
+    "atrm",
+    "DOUBLE"
+   ],
+   [
+    "total_amount",
+    "DOUBLE"
+   ],
+   [
+    "project_summary",
+    "VARCHAR"
+   ],
+   [
+    "discretionary_noise",
+    "DOUBLE"
+   ],
+   [
+    "discretionary_map",
+    "DOUBLE"
+   ],
+   [
+    "econ_recover",
+    "DOUBLE"
+   ]
+  ]
+ },
+ "source_id": "faa_grants",
+ "status": "pass",
+ "vintage_id": "20261104T110438Z"
+}
