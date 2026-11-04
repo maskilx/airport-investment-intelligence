@@ -81,6 +81,14 @@
    "value": 0
   },
   {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:year+month+unique_carrier+unique_carrier_entity+region+origin_airport_id+dest_airport_id+aircraft_type+aircraft_config+class+data_source",
+   "passed": true,
+   "severity": "error",
+   "table": "t100_segment",
+   "value": 0
+  },
+  {
    "detail": "0 negative values",
    "name": "non_negative:departures_performed",
    "passed": true,
@@ -143,6 +151,14 @@
    "severity": "warning",
    "table": null,
    "value": 3
+  },
+  {
+   "detail": "0 rows with passengers but 0 seats",
+   "name": "passengers_without_seats",
+   "passed": true,
+   "severity": "warning",
+   "table": null,
+   "value": 0
   },
   {
    "detail": "0 rows with unknown aircraft_config",

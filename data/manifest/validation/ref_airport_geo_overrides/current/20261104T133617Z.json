@@ -1,0 +1,88 @@
+{
+ "checks": [
+  {
+   "detail": "sha256 verified",
+   "name": "raw_checksums",
+   "passed": true,
+   "severity": "error",
+   "table": null,
+   "value": null
+  },
+  {
+   "detail": "all present",
+   "name": "required_columns",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_airport_geo_override",
+   "value": null
+  },
+  {
+   "detail": "6 rows, expected [1, \u221e]",
+   "name": "row_count_in_range",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_airport_geo_override",
+   "value": 6
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:faa_lid",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_airport_geo_override",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:county_fips",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_airport_geo_override",
+   "value": 0
+  },
+  {
+   "detail": "0 null values",
+   "name": "not_null:reason",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_airport_geo_override",
+   "value": 0
+  },
+  {
+   "detail": "0 duplicated keys",
+   "name": "unique_key:faa_lid",
+   "passed": true,
+   "severity": "error",
+   "table": "ref_airport_geo_override",
+   "value": 0
+  }
+ ],
+ "period": "current",
+ "row_counts": {
+  "ref_airport_geo_override": 6
+ },
+ "rules_version": "1",
+ "schemas": {
+  "ref_airport_geo_override": [
+   [
+    "faa_lid",
+    "VARCHAR"
+   ],
+   [
+    "county_fips",
+    "VARCHAR"
+   ],
+   [
+    "legacy_county_fips",
+    "VARCHAR"
+   ],
+   [
+    "reason",
+    "VARCHAR"
+   ]
+  ]
+ },
+ "source_id": "ref_airport_geo_overrides",
+ "status": "pass",
+ "vintage_id": "20261104T133617Z"
+}
