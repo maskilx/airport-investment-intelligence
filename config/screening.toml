@@ -1,7 +1,8 @@
-# Terminal-expansion opportunity screen (see docs/04 §5). Frozen, versioned model definition.
-# It ranks where the profit pool from additional passengers is largest; it is NOT a valuation.
+# Passenger Growth Opportunity Screen: stage A of the three-stage method (docs/10 §4; history in docs/04 §5).
+# Frozen, versioned model definition. It ranks forecast and realized passenger growth and market income.
+# It does NOT establish terminal need (stage B) or project returns (stage C), and it is not a valuation.
 model_version = "1.0"
-disclaimer = "Screening rank of expansion opportunity, not a financial valuation: no costs, debt, airline-agreement economics or construction risk are modelled."
+disclaimer = "Passenger growth opportunity screen (stage A), not a terminal-need assessment or a financial valuation: terminal capacity, costs, debt, airline-agreement economics and construction risk are not modelled."
 
 [gate]
 min_enplanements = 500000           # latest CY (FAA ACAIS); smaller airports listed as 'below investment scale'

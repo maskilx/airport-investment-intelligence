@@ -1,4 +1,7 @@
-"""Terminal-expansion opportunity screen (config/screening.toml).
+"""Passenger Growth Opportunity Screen — stage A of the three-stage method (config/screening.toml, docs/10 §4).
+
+It ranks where forecast and realized passenger growth and market income are strongest. It does NOT establish that a
+terminal is the binding constraint (stage B: intervention suitability) or that a project pays (stage C: economics).
 
 score = Σ_i w_i · S_i(x_i),  S = clip((g(x) − g(lo)) / (g(hi) − g(lo)), 0, 1) · 100,  g = identity or log10.
 Additive by construction: contributions sum exactly to the score. No imputation, no reweighting:
@@ -23,15 +26,72 @@ def _scale(x: float, comp: dict) -> float:
     return max(0.0, min(1.0, (x - lo) / (hi - lo))) * 100
 
 
-def _verified_imc_rates(ctx) -> dict[str, float]:
-    rows = ctx.engine.con.execute("""SELECT airport_iata, value FROM curated_constraint
-        WHERE category = 'capacity_rate' AND verification LIKE 'verified:%' AND item ILIKE '%instrument%'""").fetchall()
-    out: dict[str, float] = {}
-    for code, val in rows:
-        nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", str(val))]
-        if nums:
-            out[code] = max(out.get(code, 0.0), max(nums))   # best IMC configuration (conservative)
+# Evidence ladder for curated constraint records (docs/10 §1.3). Only primary/secondary evidence drives a flag;
+# weaker records are shown as reported-but-unverified, never hidden and never treated as fact.
+EVIDENCE_LEVELS = ("primary", "secondary", "snippet", "unverified")
+FLAG_LEVELS = ("primary", "secondary")
+STRICT_NUM = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(?:-\s*(\d+(?:\.\d+)?))?\s*$")   # "76" or "76-78", nothing else
+
+
+def evidence_level(verification: str) -> str:
+    v = (verification or "").strip().lower()
+    if v.startswith("verified:primary"):
+        return "primary"
+    if v.startswith("verified:secondary"):
+        return "secondary"
+    if v.startswith("verified:search_snippet") or v.startswith("verified:snippet"):
+        return "snippet"
+    return "unverified"
+
+
+def strict_range(value: str) -> tuple[float, float] | None:
+    """A capacity value is usable only if the WHOLE field is a number or a numeric range. Free text such as
+    '12.2 (12.5 if ...)' is not parsed for numbers: it is reported as unusable."""
+    m = STRICT_NUM.match(str(value or ""))
+    if not m:
+        return None
+    lo = float(m.group(1))
+    return lo, float(m.group(2) or lo)
+
+
+def constraint_records(ctx, as_of: str) -> list[dict]:
+    """Curated constraints with evidence level and effectiveness at `as_of` (ISO date)."""
+    rows = ctx.engine.con.execute("""SELECT airport_iata, category, item, value, unit, effective_from, effective_to,
+        status, verification, source_url FROM curated_constraint""").fetchall()
+    out = []
+    for code, cat, item, val, unit, ef, et, status, ver, url in rows:
+        ef_s, et_s = str(ef or "").strip(), str(et or "").strip()
+        lvl = evidence_level(ver)
+        # dates decide (the status column describes the record today, not at as_of); status only fills a missing end
+        if et_s and et_s[:len(as_of)] < as_of[:len(et_s)]:
+            eff = "ended"
+        elif ef_s and ef_s[:len(as_of)] > as_of[:len(ef_s)]:
+            eff = "not_yet"
+        elif not et_s and (status or "").lower() in ("superseded", "expired") and cat in ("regulatory_cap", "curfew"):
+            eff = "ended"
+        else:
+            eff = "in_effect"
+        out.append({"airport": code, "category": cat, "item": item, "value": val, "unit": unit, "effective_from": ef_s,
+                    "effective_to": et_s, "status": status, "evidence": lvl, "effective": eff, "source_url": url})
     return out
+
+
+def _verified_imc_rates(recs: list[dict]) -> tuple[dict[str, float], list[dict]]:
+    """Highest verified instrument-condition rate per airport (best configuration: the conservative choice for a
+    'schedule exceeds capacity' flag), from primary/secondary records with a strictly numeric value."""
+    out: dict[str, float] = {}
+    rejected = []
+    for r in recs:
+        if r["category"] != "capacity_rate" or "instrument" not in (r["item"] or "").lower() or r["effective"] != "in_effect":
+            continue
+        rng = strict_range(r["value"])
+        if r["evidence"] not in FLAG_LEVELS or rng is None or "operations/hour" not in (r["unit"] or ""):
+            rejected.append({"airport": r["airport"], "item": r["item"], "evidence": r["evidence"],
+                             "reason": "evidence below secondary" if r["evidence"] not in FLAG_LEVELS
+                             else "value is not a strict number/range in operations/hour"})
+            continue
+        out[r["airport"]] = max(out.get(r["airport"], 0.0), rng[1])
+    return out, rejected
 
 
 def _hours_above(ctx, aid: int, rate: float, months: list[str]) -> tuple[float, int]:
@@ -87,12 +147,18 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
         ranks_by_scen[name] = {t[0]: i + 1 for i, t in enumerate(order)}
     w = weights[scen_name]
     order = sorted(scored, key=lambda t: -total(t[2], w))
-    # flags
-    imc = _verified_imc_rates(ctx)
+    # flags (constraints evaluated at an explicit as-of date, recorded for replay)
+    from datetime import date
+    as_of = str(opts.get("as_of") or date.today().isoformat())
+    recs = constraint_records(ctx, as_of)
+    imc, imc_rejected = _verified_imc_rates(recs)
     ot_months = ctx.engine.available("ontime_dep")[-12:]
-    caps = dict(ctx.engine.con.execute("""SELECT airport_iata, string_agg(item || ': ' || value, '; ')
-        FROM curated_constraint WHERE category IN ('regulatory_cap', 'curfew') AND verification LIKE 'verified:%'
-        GROUP BY 1""").fetchall())
+    caps: dict[str, list[dict]] = {}
+    for r in recs:
+        if r["category"] in ("regulatory_cap", "curfew") and r["effective"] == "in_effect":
+            caps.setdefault(r["airport"], []).append(r)
+    ended = [{"airport": r["airport"], "item": r["item"], "effective_to": r["effective_to"]} for r in recs
+             if r["category"] in ("regulatory_cap", "curfew") and r["effective"] != "in_effect"]
     conc = _per_airport({"entities": spec["entities"]}, [t[0] for t in scored], notes, ctx, ["top_carrier_share"])["top_carrier_share"]
     ctxv = _per_airport({"entities": spec["entities"]}, [t[0] for t in scored], notes, ctx,
                         ["npias_need_usd", {"id": "grants_awarded_usd", "window": {"fy_range": [2021, 2025]}}])
@@ -103,7 +169,7 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
         code = ctx.resolver.code(aid)
         sc = total(svals, w)
         contrib = [wi * si for wi, si in zip(w, svals)]
-        f = _new(ctx, metric_id=f"screen_score:{cfg['model_version']}", label=f"Expansion screen score — {code} ({scen_name})",
+        f = _new(ctx, metric_id=f"screen_score:{cfg['model_version']}", label=f"Passenger growth opportunity score — {code} ({scen_name})",
                  value=sc, unit="points (anchored scale)", fmt="number", epistemic_class="calculated",
                  definition="Σ weight × anchored score of: " + "; ".join(
                      f"{c['label']} [{c['lo']}→{c['hi']}, {c['scale']}] w={wi}" for c, wi in zip(comps, w)),
@@ -113,8 +179,13 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
                  window={"label": "see inputs"}, sources=[s for x in fs for s in x.sources],
                  caveats=[cfg["disclaimer"], "TAF component is an FAA forecast (unconstrained)."], inputs=[x.id for x in fs])
         flags = []
-        if code in caps:
-            flags.append({"flag": "REGULATORY_CAP", "detail": caps[code], "class": "observed (verified curated)"})
+        for r in caps.get(code, []):
+            strong = r["evidence"] in FLAG_LEVELS
+            flags.append({"flag": ("REGULATORY_CAP" if r["category"] == "regulatory_cap" else "CURFEW") if strong
+                          else "REPORTED_CONSTRAINT_UNVERIFIED",
+                          "detail": f"{r['item']} (effective {r['effective_from'] or 'n/a'} to {r['effective_to'] or 'open'})",
+                          "evidence": r["evidence"], "source_url": r["source_url"],
+                          "class": f"observed (curated, {r['evidence']} evidence)" if strong else "not_established"})
         if code in imc:
             share, nh = _hours_above(ctx, aid, imc[code], ot_months)
             fh = _new(ctx, metric_id="hours_above_imc_rate", label=f"Share of operating hours with reporting-carrier schedule > IMC rate — {code}",
@@ -151,6 +222,8 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
                                           "grants_awarded_fy21_25_usd": gr and {"id": gr.id, "value": _round(gr.value)}}})
         findings.append(f.brief())
     return {"op": "screen", "model_version": cfg["model_version"], "scenario": scen_name, "disclaimer": cfg["disclaimer"],
+            "stage": "A: passenger growth opportunity (not terminal suitability, not project economics)",
+            "constraints_as_of": as_of, "constraints_not_in_effect": ended, "capacity_rates_not_used": imc_rejected,
             "gate": {"min_enplanements": gate, "below_scale": below,
                      "no_faa_enplanement_record": no_record[:50], "n_no_record": len(no_record)}, "table": table, "not_scored": not_scored,
             "findings": findings, "max_rank_shift_across_scenarios":

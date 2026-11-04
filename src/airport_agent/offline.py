@@ -205,7 +205,7 @@ class OfflineBackend:
                 intent = "screen"
         if not airports and not group:
             if intent == "screen":
-                return _text("Which region or state should I screen for terminal-expansion candidates (for example "
+                return _text("Which region or state should I screen for passenger growth opportunity (for example "
                              "New England, Texas or the Pacific division)?")
             return _text("Which airport or region should I analyze? You can use a code (SFO), a city, or a region.")
 
@@ -376,10 +376,14 @@ class OfflineBackend:
         if below:
             lim.append("Below the passenger-scale gate and not scored: " + ", ".join(below) + ".")
         lim.append(r.get("disclaimer", ""))
-        return {"headline": f"Terminal-expansion screening candidates{' in ' + region if region else ''}",
+        lim.append("Terminal suitability (whether a terminal is the binding constraint) and project economics are not "
+                   "established by this screen; they need dated capacity, committed-project and cost evidence.")
+        lim.append("Constraint flags use records in effect at the screen's as-of date (recorded with each score); expired "
+                   "caps are excluded and records without primary or secondary evidence are flagged as unverified, not used.")
+        return {"headline": f"Passenger growth opportunity screen{' in ' + region if region else ''}",
                 "body": "Airports in rank order (base scenario):\n\n" + "\n".join(lines),
                 "claims": claims,
                 "assumptions": ["Screen weights and anchors are the documented base scenario (config/screening.toml); "
                                 "a screening rank, not a valuation."],
                 "limitations": [x for x in lim if x],
-                "charts": [{"type": "bar", "title": "Expansion screen score (base scenario)", "findings": fids}]}
+                "charts": [{"type": "bar", "title": "Passenger growth opportunity score (base scenario)", "findings": fids}]}

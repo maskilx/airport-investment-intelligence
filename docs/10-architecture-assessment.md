@@ -140,3 +140,23 @@ The fix is structural, not prompt-level. Deterministic code takes ownership of:
 * That Gemini plans well through this loop. That needs the budgeted live check.
 * Profitability or terminal need for any airport. The data supports a growth-opportunity screen and airside indicators.
 * That the vocabulary gates catch every paraphrase. They don't. The structural checks (relations, ranks, staleness, classes) are the guarantee.
+
+## 6. Resolution on branch `trust-architecture`
+
+| Stage | Commit | Closes | Tests (`tests/test_trust.py` unless noted) |
+|---|---|---|---|
+| 0 | `f72f048` | Build-stamp provenance gap (`-dirty`); rebuild-and-diff showed the data fixes were live | manual rebuild + `EXCEPT ALL` diff (§0) |
+| 1 | `f72f048` | Review 2 §6.3: execution envelopes, faithful replay of rank, screen, derive and sql | `test_screen_score_replays_as_screen_not_aggregate`, `test_replay_detects_a_changed_value`, … |
+| 2 | `ffa2a81` | Review 2 §6.1; Grok #5 and #6: bound and unbound assumption dependencies, stale findings not citable, persisted status, number-free memory text | `test_bound_assumption_makes_default_threshold_findings_stale_and_uncitable`, `test_offline_threshold_follow_up_binds_and_reruns`, … |
+| 3 | `756fd36` | Review 2 §5 and §6.2: typed claims, relations and ranks written by code, compatibility and period checks, financial and capacity-need gating, year provenance | `test_reviewer_counterexample_*`, `test_comparison_direction_compatibility_and_periods_are_checked_by_code`, … |
+| 4 | `5d886f0` | Review 2 §6.5; Grok #7, #8, #10–#15: paired tool results, in-flight interrupt (timeout and cancel), per-turn cancel events, hard context cap, explicit model-config failure, Flash-only unless paid is allowed, persisted daily budget, proxy-free fetch, number-free user errors | `test_every_tool_use_is_paired_*`, `test_cancel_interrupts_an_in_flight_query`, `test_hard_context_budget_*`, … |
+| 5 | (this commit) | Review 2 §4.1, §4.2 and §6.4: stage A naming and framing; constraint evidence ladder, as-of effectiveness (recorded for replay), strict numeric capacity values, unverified records shown rather than used | `test_constraints_respect_effective_dates_and_evidence_levels`, `test_strict_numeric_parsing_*`, `test_screen_is_framed_as_stage_a_*` |
+
+### Still open (in priority order)
+1. **Constraint data schema.** Effectiveness and evidence level are now enforced in code. The CSV should still be migrated to explicit columns: `value_low`, `value_high`, `conditions`, `configuration`, `evidence_level`, `evidence_location`. The migration goes through a new curated vintage. Most terminal and project rows are `unverified:gemini_research` and need primary documents (P1.3).
+2. **Stage B assessment.** Build the intervention-suitability assessment (`terminal_supported | airfield_or_regulatory_dominates | committed_project_addresses | insufficient_evidence`) on those records. Today every airport would honestly return `insufficient_evidence`.
+3. **API-level end-to-end tests.** Cover two concurrent turns plus cancel, restart mid-conversation with stale findings, and a 50-turn conversation through SSE. The runtime pieces are unit-tested; the HTTP path for these cases is not.
+4. **Grok #9.** Retrieved earlier questions and group-filter keys still enter the memory block unmasked. The offline planner parses the group key, so masking needs a structured channel first. Risk is low because the validator rejects any literal in an answer.
+5. **Grok #17–#19 (low).** The provenance cursor is shared across request threads (add a lock). Usage-log error bodies need a redaction pass. Restrict the href scheme in the UI.
+6. **Eval harness.** Update the scorer for typed claims. Rerun the unrun 21 questions offline-scripted first, then a ≤ 25-request live Gemini sanity check **only with explicit authorisation**.
+7. **Stage C economics.** Do not start until stage B evidence and analyst financial inputs exist.

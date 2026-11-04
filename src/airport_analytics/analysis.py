@@ -259,6 +259,8 @@ def run_analysis(spec: dict[str, Any], ctx: Context) -> dict[str, Any]:
           "anomaly": _op_anomaly, "distribution": _op_distribution, "forecast_vs_actual": _op_fva,
           "screen": _op_screen}[op]
     result = fn(spec, ids, notes, ctx)
+    if op == "screen" and result.get("constraints_as_of"):          # replay must evaluate constraints on the same date
+        original.setdefault("options", {})["as_of"] = result["constraints_as_of"]
     env = execution_envelope("run_analysis", op, original, ids, ctx)
     for f in ctx.store.added_since(n0):
         f.execution = dict(env, result_key=f.result_key())
@@ -343,7 +345,7 @@ def _op_rank(spec, ids, notes, ctx):
     for rank, (aid, fs) in enumerate(order, 1):
         score = sum(contrib[aid])
         f = _new(ctx, metric_id="rank_score", label=f"Ranking score — {ctx.resolver.code(aid)}", value=score,
-                 unit="points (0-100, relative to this set)", fmt="number", epistemic_class="calculated",
+                 unit="points (relative to this set)", fmt="number", epistemic_class="calculated",
                  definition=f"Σ weight × {scaling}-scaled criterion; criteria: " +
                  ", ".join(f"{k} ({c.get('direction', 'higher_better')}, w={c.get('weight', 1)})" for k, c in zip(keys, crit)),
                  formula_version="1", subject={"airport": aid, "airport_code": ctx.resolver.code(aid), "rank": rank, "of": len(order)},

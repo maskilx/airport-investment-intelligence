@@ -376,3 +376,43 @@ def test_web_fetch_ignores_environment_proxies():
     (Source-level check: exercising it for real needs a proxy and a rebinding DNS name.)"""
     from airport_agent import web
     assert "urllib.request.ProxyHandler({})" in open(web.__file__).read()
+
+
+# ---------------------------------------------------------------- stage 5: constraint records and stage-A framing
+def test_constraints_respect_effective_dates_and_evidence_levels(S):
+    """Review 2 §6.4: an expired cap was combined with the current one; snippet evidence counted as verified."""
+    r = run(S, {"op": "screen", "entities": {"airports": ["SNA", "SFO", "LAX", "SEA"]},
+                "options": {"as_of": "2026-11-04"}})
+    sna = next(t for t in r["table"] if t["airport"] == "SNA")
+    flags = sna["flags"]
+    assert not any("Phase 2" in str(f.get("detail")) for f in flags)                 # ended 2025-12-31
+    assert any("Phase 3" in str(f.get("detail")) for f in flags)
+    assert all(f["flag"] == "REPORTED_CONSTRAINT_UNVERIFIED" for f in flags
+               if f["flag"] in ("REGULATORY_CAP", "CURFEW", "REPORTED_CONSTRAINT_UNVERIFIED"))   # snippet-only evidence
+    assert any(e["airport"] == "SNA" and "Phase 2" in e["item"] for e in r["constraints_not_in_effect"])
+    # on a date inside Phase 2, Phase 2 is the one in effect
+    r2 = run(S, {"op": "screen", "entities": {"airports": ["SNA", "SFO"]}, "options": {"as_of": "2024-06-01"}})
+    sna2 = next(t for t in r2["table"] if t["airport"] == "SNA")
+    assert any("Phase 2" in str(f.get("detail")) for f in sna2["flags"])
+    assert not any("Phase 3" in str(f.get("detail")) for f in sna2["flags"])
+    # LAX capacity rates are unverified -> not used; SFO's are primary -> used
+    lax = next(t for t in r["table"] if t["airport"] == "LAX")
+    sfo = next(t for t in r["table"] if t["airport"] == "SFO")
+    assert any(f["flag"] == "AIRFIELD_UNKNOWN" for f in lax["flags"])
+    assert any(f["flag"].startswith("AIRFIELD_") and f["flag"] != "AIRFIELD_UNKNOWN" for f in sfo["flags"])
+    assert any(x["airport"] == "LAX" for x in r["capacity_rates_not_used"])
+
+
+def test_strict_numeric_parsing_of_capacity_values():
+    from airport_analytics.screening import strict_range
+    assert strict_range("76-78") == (76.0, 78.0) and strict_range("83") == (83.0, 83.0)
+    assert strict_range("12.2 (12.5 if 2021-2025 traffic reached 11.21 MAP)") is None
+    assert strict_range("about 80") is None
+
+
+def test_screen_is_framed_as_stage_a_and_replays_on_its_as_of_date(S):
+    r = run(S, {"op": "screen", "entities": {"group": {"census_division": "New England"}}})
+    f = S.ctx.store.get(r["table"][0]["score"]["id"])
+    assert f.label.startswith("Passenger growth opportunity score") and "terminal" in r["disclaimer"].lower()
+    assert f.execution["spec"]["options"]["as_of"] == r["constraints_as_of"]
+    assert S.call("get_finding", {"id": f.id, "reproduce": True})["replay"]["match"] is True

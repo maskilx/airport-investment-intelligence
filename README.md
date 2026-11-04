@@ -1,6 +1,6 @@
 # Airport Investment Intelligence
 
-An evidence-first analyst workspace for US airport modernization investing. You ask in natural language
+An evidence-first analyst workspace for US airport modernization **screening and due diligence**. You ask in natural language
 ("Which New England airports are strong candidates for terminal expansion?", "Compare LA and Santa Ana congestion")
 and get answers in which **every number is a clickable finding**: definition, period, inputs, caveats, the source dataset
 and the exact file it was fetched from. Charts are built from the same findings. Follow-ups reuse earlier findings
@@ -71,7 +71,7 @@ data/
 * **Downstream layers** (analytics, agent, API, observability): use `airport_data.db.connect()` and
   the conformed views; every row carries `_source_id/_period/_vintage_id`, joinable to `ingest_manifest`.
 
-## Sources (17)
+## Sources (17 registered: public bulk files, reporting-form exports, curated and reference tables)
 
 BTS T-100 Segment (all carriers) · BTS On-Time (12 months) · BTS lookups · FAA ATADS tower operations ·
 FAA CY enplanements & cargo · FAA TAF 2025 · FAA grant detail reports FY2021–25 · FAA NPIAS 2025–29 ·
@@ -83,4 +83,4 @@ validation, identity design) · [03 Phase 1.1](docs/03-phase1.1-data-enrichment.
 assessments, data dictionary additions, limitations) · [validation-case results](docs/examples/RESULTS.md) · [04 analytics plan](docs/04-phase2-analytics-plan.md) ·
 [05 analytics architecture](docs/05-analytics-architecture.md) · [06 audit, review, eval](docs/06-phase2-audit-review-log.md) ·
 [07 product plan](docs/07-product-phase-plan.md) · [08 memory and context](docs/08-memory-and-context.md) ·
-[09 product review](docs/09-product-review-log.md).
+[product-layer review](docs/reviews/grok-product-review-2026-11-04.md) · [10 consolidated assessment](docs/10-architecture-assessment.md).
