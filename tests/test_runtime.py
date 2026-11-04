@@ -77,7 +77,7 @@ def test_gemini_schema_translation():
         "op": {"enum": ["a", 1]}, "o": {"type": "object", "default": {}}}}
     g = gemini_schema(s)
     assert "additionalProperties" not in g and g["properties"]["m"]["type"] == "string"
-    assert g["properties"]["op"]["enum"] == ["a", "1"] and g["properties"]["o"]["properties"] == {}
+    assert g["properties"]["op"]["enum"] == ["a", "1"] and g["properties"]["o"]["type"] == "string"   # free-form object -> JSON string
 
 
 def test_gemini_contents_mapping_echoes_thought_signature():
@@ -285,3 +285,30 @@ def test_offline_ordinal_follow_up_uses_ranked_list():
     a.ask("Which airports in New England are strong candidates for terminal expansion?")
     r = a.ask("Compare congestion at the top two of those")
     assert r.kind == "answer" and r.structured["headline"].endswith("BOS, PWM")
+
+
+def test_gemini_schemas_have_no_empty_objects_and_args_round_trip():
+    from airport_agent.models import decode_args
+    from airport_agent.runtime import MEMORY_TOOLS
+    from airport_agent.web import WebResearch
+    from airport_analytics.tools import tool_schemas
+
+    def walk(s, path):
+        if isinstance(s, dict):
+            if s.get("type") == "object":
+                assert s.get("properties"), f"empty OBJECT at {path}"
+            for k in ("oneOf", "anyOf", "allOf", "additionalProperties", "$schema"):
+                assert k not in s, f"{k} at {path}"
+            for k, v in s.items():
+                walk(v, f"{path}.{k}")
+        elif isinstance(s, list):
+            for i, v in enumerate(s):
+                walk(v, f"{path}[{i}]")
+    tools = tool_schemas() + MEMORY_TOOLS + [t for t, _ in WebResearch().tools().values()]
+    for t in tools:
+        walk(gemini_schema(t["input_schema"]), t["name"])
+    args = {"spec": {"op": "aggregate", "metrics": ["seat_factor", '{"id": "passengers", "transform": {"type": "pct_change"}}'],
+                     "options": '{"scenario": "base"}'}, "sql": "SELECT 1"}
+    d = decode_args(args)
+    assert d["spec"]["metrics"][1]["transform"]["type"] == "pct_change" and d["spec"]["options"] == {"scenario": "base"}
+    assert d["sql"] == "SELECT 1"

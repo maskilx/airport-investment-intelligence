@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from airport_analytics.evidence import EvidenceStore, Finding, SourceRef
+from airport_analytics.render import ALLOWED_WORD_USES, NUMBER_WORDS, _numeric_chars
 
 FID = re.compile(r"\bF\d+\b")
 
@@ -269,7 +270,7 @@ class ConversationState:
             return {"op": "assumption_set", **new}, None
         if action == "note_decision":
             sup = [s for s in upd.get("support") or [] if FID.fullmatch(s)]
-            if re.search(r"\d", FID.sub("", text)):
+            if not summary_is_safe(FID.sub("", text)):
                 return None, "decisions may reference findings (F#) but must not restate numbers"
             d = {"text": text, "turn": turn, "support": sup}
             self.decisions.append(d)
@@ -292,6 +293,8 @@ def summary_is_safe(text: str) -> bool:
     """A summary may mention F#/A# ids, turn numbers and years; any other digit makes it a would-be source of numbers -> reject."""
     t = re.sub(r"\b[FA]\d+\b|\b[Tt]urns? \d+(?:\s*(?:-|–|and|to)\s*\d+)?\b", "", text)
     t = re.sub(r"\b(19|20)\d\d\b|\b(FY|CY)\s?\d{2,4}\b|\bT-100\b|\bT12\b", "", t)
+    if NUMBER_WORDS.search(ALLOWED_WORD_USES.sub("", t)) or _numeric_chars(t):     # "eighty percent", "½"
+        return False
     return not NUM_OUTSIDE_REFS.search(t)
 
 

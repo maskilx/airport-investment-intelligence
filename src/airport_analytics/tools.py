@@ -240,13 +240,37 @@ _METRIC_REF = {"oneOf": [{"type": "string"}, {"type": "object", "properties": {
                                                    "compare_window": {"type": "object"}, "years": {"type": "number"}}}},
     "required": ["id"]}]}
 
+_GROUP = {"type": "object", "description": "airport group filter (combine keys to intersect)", "properties": {
+    "state": {"type": "string", "description": "2-letter state code"}, "census_division": {"type": "string"},
+    "census_region": {"type": "string"}, "hub_class": {"type": "string", "description": "L|M|S|N"},
+    "cbsa": {"type": "string"}, "csa": {"type": "string"}, "min_enplanements": {"type": "number"},
+    "towered": {"type": "boolean"}, "airports": {"type": "array", "items": {"type": "string"}}}}
+_ENTITIES = {"type": "object", "description": "either airports (codes) or group", "properties": {
+    "airports": {"type": "array", "items": {"type": "string"}}, "group": _GROUP}}
+_WINDOW = {"type": "object", "description": "one of: {t12:true[,offset_months]}, {start,end} (YYYY-MM), {cy}, {fy}, {fy_range}",
+           "properties": {"t12": {"type": "boolean"}, "offset_months": {"type": "integer"}, "start": {"type": "string"},
+                          "end": {"type": "string"}, "cy": {"type": "integer"}, "fy": {"type": "integer"},
+                          "fy_range": {"type": "array", "items": {"type": "integer"}}}}
+_ANSWER = {"type": "object", "properties": {
+    "headline": {"type": "string"}, "body": {"type": "string"},
+    "claims": {"type": "array", "items": {"type": "object", "properties": {
+        "kind": {"enum": ["fact", "inference", "hypothesis", "external"]}, "text": {"type": "string"},
+        "support": {"type": "array", "items": {"type": "string"}}, "source": {"type": "string"},
+        "quote": {"type": "string"}}, "required": ["kind", "text"]}},
+    "assumptions": {"type": "array", "items": {"type": "string"}},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "charts": {"type": "array", "items": {"type": "object", "properties": {
+        "type": {"enum": ["auto", "bar", "line", "scatter", "table"]}, "title": {"type": "string"},
+        "findings": {"type": "array", "items": {"type": "string"}}}, "required": ["findings"]}}},
+    "required": ["headline", "body"]}
+
 TOOLS: dict[str, Tool] = {t.name: t for t in [
     Tool("resolve_entities",
          "Resolve airport names/codes/cities/regions to airports or groups. Returns kind = airport | group | ambiguous | unknown "
          "with candidates and notes. Use before analysis when the user names places; ask the user when ambiguous "
          "(unless a contrast question makes the intended pair clear — then state the assumption).",
          {"type": "object", "properties": {"terms": {"type": "array", "items": {"type": "string"}},
-                                           "group": {"type": "object"}}}, _resolve),
+                                           "group": _GROUP}}, _resolve),
     Tool("describe_catalog",
          "List metrics, operators, transforms, dimensions, windows and data coverage, or describe one metric (formula, "
          "params, facts, coverage). Use to choose valid metric ids; never invent metric ids.",
@@ -258,8 +282,8 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          "screen: scenario,min_enplanements). Returns findings with ids (F#) usable in the answer.",
          {"type": "object", "properties": {"spec": {"type": "object", "properties": {
              "op": {"enum": list(OPS)}, "metrics": {"type": "array", "items": _METRIC_REF},
-             "entities": {"type": "object"}, "group_by": {"type": "array", "items": {"type": "string"}},
-             "window": {"type": "object"}, "filters": {"type": "object"}, "options": {"type": "object"}},
+             "entities": _ENTITIES, "group_by": {"type": "array", "items": {"type": "string"}},
+             "window": _WINDOW, "filters": {"type": "object"}, "options": {"type": "object"}},
              "required": ["op", "entities"]}}, "required": ["spec"]}, _run),
     Tool("derive",
          "Compute difference | ratio | pct_difference (two findings) or sum (≥2) of existing findings, producing a new "
@@ -281,7 +305,7 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          "support:[F#]} or {kind: external, text, source: W#, quote}], assumptions:[...], limitations:[...], charts:[{type: auto|bar|line|scatter|table, title, findings:[F#...]}]}. "
          "Charts take their values from the cited findings (comparisons -> bar, monthly series -> line). Write every number as a placeholder {F#} (or {F#.period}, "
          "{F#.label}, {F#.name}); literal numbers are rejected. Evidence, methodology and caveats are appended automatically.",
-         {"type": "object", "properties": {"answer": {"type": "object"}}, "required": ["answer"]}, _compose),
+         {"type": "object", "properties": {"answer": _ANSWER}, "required": ["answer"]}, _compose),
 ]}
 
 

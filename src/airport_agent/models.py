@@ -88,12 +88,31 @@ def gemini_schema(s: Any) -> Any:
         if "enum" in out:
             out["type"] = "string"
             out["enum"] = [str(e) for e in out["enum"]]
-        if out.get("type") == "object" and "properties" not in out:
-            out["properties"] = {}
+        if out.get("type") == "object" and not out.get("properties"):
+            # Gemini rejects OBJECT parameters without properties: free-form objects travel as JSON strings and are
+            # decoded back by decode_args() before the tool runs.
+            return {"type": "string", "description": (s.get("description") or "free-form options") +
+                    " (a JSON object encoded as a string, e.g. {\"key\": \"value\"})"}
+        if "required" in out and out.get("properties"):
+            out["required"] = [r for r in out["required"] if r in out["properties"]]
         return out
     if isinstance(s, list):
         return [gemini_schema(x) for x in s]
     return s
+
+
+def decode_args(v: Any) -> Any:
+    """Inverse of the schema translation: JSON objects/arrays that were sent as strings become structures again."""
+    if isinstance(v, dict):
+        return {k: decode_args(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [decode_args(x) for x in v]
+    if isinstance(v, str) and v[:1] in "{[" and v.strip()[-1:] in "}]":
+        try:
+            return decode_args(json.loads(v))
+        except ValueError:
+            return v
+    return v
 
 
 class GeminiBackend:
@@ -181,7 +200,7 @@ class GeminiBackend:
             if "functionCall" in p:
                 fc = p["functionCall"]
                 blocks.append({"type": "tool_use", "id": "gc_" + uuid.uuid4().hex[:10], "name": fc["name"],
-                               "input": fc.get("args") or {},
+                               "input": decode_args(fc.get("args") or {}),
                                "provider_meta": {"thoughtSignature": p["thoughtSignature"]} if p.get("thoughtSignature") else {}})
             elif p.get("text") and not p.get("thought"):
                 blocks.append({"type": "text", "text": p["text"]})

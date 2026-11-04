@@ -152,3 +152,12 @@ def test_ranked_lists_are_remembered_in_order(tmp_path):
     st, ev, _ = _long_conversation(tmp_path, 1)
     mem, _, _ = ContextBuilder(st).build("c", "top two?", s, ev, fmt_value)
     assert "Ordered result from turn 1 (screen (base)), best first: BOS [F9], PWM [F10]" in mem
+
+
+def test_summary_rejects_number_words_and_unicode_numerals():
+    assert not summary_is_safe("- SFO seat factor was about eighty percent")
+    assert not summary_is_safe("- half of BOS traffic is connecting (½)")
+    assert summary_is_safe("- One of the airports discussed was BOS (F2)")
+    s = ConversationState()
+    _, err = s.apply_update({"action": "note_decision", "text": "Prefer BOS, it grew twelve percent"}, 1)
+    assert err
