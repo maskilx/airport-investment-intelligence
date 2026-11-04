@@ -39,10 +39,12 @@ def _label(name: str, keys: dict[str, Any], window: str, ctx: Context, ids: list
     return f"{name} — {', '.join(parts) or 'group total'} — {window}"
 
 
-def _subject(keys: dict[str, Any], ctx: Context, group_note: dict | None) -> dict[str, Any]:
+def _subject(keys: dict[str, Any], ctx: Context, group_note: dict | None, ids: list[int] | None = None) -> dict[str, Any]:
     s = dict(keys)
     if "airport" in keys:
         s["airport_code"] = ctx.resolver.code(keys["airport"])
+    elif ids and len(ids) == 1:                       # single-airport result without grouping
+        s["airport"], s["airport_code"] = ids[0], ctx.resolver.code(ids[0])
     elif group_note:
         s["entity_set"] = group_note.get("group") or [a["code"] for a in group_note.get("airports", [])]
     return s
@@ -57,6 +59,12 @@ def _new(ctx: Context, **kw) -> Finding:
         raise InvalidSpec("session evidence store full")
     f = Finding(id=ctx.store.new_id(), catalog_version=CATALOG_VERSION, **kw)
     return ctx.store.add(f)
+
+
+def _is_area(ref: MetricRef) -> bool:
+    from .semantic import FACTS as _F
+    from .semantic import metric_measures as _mm
+    return any(_F[ms.fact].area_key for ms, _ in _mm(ref.metric, ref.params).values())
 
 
 def _name(ref: MetricRef) -> str:
@@ -85,16 +93,25 @@ def _eval_refs(ctx: Context, spec: dict, ids: list[int], group_by: list[str], no
         for row in res.rows:
             k = tuple(row["keys"].items())
             cav = list(ref.metric.caveats)
+            if "year" in row["keys"] or "fiscal_year" in row["keys"]:
+                wk = next(iter(res.windows.values()))
+                if wk.kind == "month":
+                    yk = "year" if "year" in row["keys"] else "fiscal_year"
+                    n = sum(1 for m in wk.periods if (int(m[:4]) if yk == "year" else
+                                                      int(m[:4]) + (1 if int(m[5:]) >= 10 else 0)) == row["keys"][yk])
+                    if n < 12:
+                        cav.append(f"Partial {yk.replace('_', ' ')}: {n} of 12 months inside the requested window")
             cov = row.get("ontime_coverage")
             if cov and cov["ratio"] is not None and cov["ratio"] < 0.7:
                 cav.append("ONTIME_LOW_COVERAGE")
             f = _new(ctx, metric_id=ref.key, label=_label(_name(ref), row["keys"], win_lab, ctx, ids),
                      value=row["values"][ref.key], unit=ref.metric.unit, fmt=ref.metric.fmt,
                      epistemic_class=res.classes[ref.key], definition=_fmt_def(ref),
-                     formula_version=ref.metric.formula_version, subject=_subject(row["keys"], ctx, notes),
+                     formula_version=ref.metric.formula_version, subject=_subject(row["keys"], ctx, notes, ids),
                      window={"label": win_lab, "spec": window or {"t12": True}}, sources=res.lineage[ref.key],
-                     caveats=_caveat_texts(cav) + ([CAVEATS["TAF_FORECAST"]] if res.classes[ref.key] == "forecast"
-                                                   and "TAF_FORECAST" not in cav else []),
+                     caveats=_caveat_texts([c for c in cav if c != "TAF_FORECAST" or res.classes[ref.key] == "forecast"])
+                     + ([CAVEATS["TAF_FORECAST"]] if res.classes[ref.key] == "forecast" and "TAF_FORECAST" not in cav else [])
+                     + ([CAVEATS["AREA_NOT_ADDITIVE"]] if _is_area(ref) and group_by and group_by != ["month"] else []),
                      coverage=cov, spec={"metrics": [base_raw], "entities": spec["entities"], "window": window,
                                          "group_by": group_by, "filters": spec.get("filters")})
             base[k] = f
@@ -112,13 +129,24 @@ def _eval_refs(ctx: Context, spec: dict, ids: list[int], group_by: list[str], no
                 cw = {"t12": True, "offset_months": int((window or {}).get("offset_months", 0)) + 12}
             else:
                 raise InvalidSpec("transform needs compare_window")
+        if any(w.kind == "static" for w in res.windows.values()):
+            raise NotApplicable(f"{ref.metric.id} comes from a single static release; a change over time is not defined")
         cres = ctx.engine.evaluate([ref], ids, cw, group_by, spec.get("filters"), attach_coverage=False)
         clab = "; ".join(sorted({w.label for w in cres.windows.values()}))
+        bw, cwr = list(res.windows.values())[0], list(cres.windows.values())[0]
+        if bw.periods == cwr.periods:
+            raise InvalidSpec(f"transform compares a window with itself ({win_lab}); give a different compare_window")
+        if len(bw.periods) != len(cwr.periods):
+            raise InvalidSpec(f"transform windows differ in length ({len(bw.periods)} vs {len(cwr.periods)} periods)")
         years = None
-        if typ == "cagr":
-            years = tr.get("years")
-            if not years:
-                raise InvalidSpec("cagr transform needs 'years' (length of the interval)")
+        if typ == "cagr":       # interval length inferred from the windows, never caller-supplied
+            if bw.kind == "month":
+                y0, m0 = map(int, cwr.periods[0].split("-")); y1, m1 = map(int, bw.periods[0].split("-"))
+                years = ((y1 * 12 + m1) - (y0 * 12 + m0)) / 12
+            else:
+                years = bw.periods[0] - cwr.periods[0]
+            if years <= 0:
+                raise InvalidSpec("cagr needs the compare window to precede the window")
         for row in cres.rows:
             k = tuple(row["keys"].items())
             if k not in base:
@@ -142,15 +170,18 @@ def _eval_refs(ctx: Context, spec: dict, ids: list[int], group_by: list[str], no
                 v = a / b - 1
             else:
                 v = (a / b) ** (1 / float(years)) - 1 if a > 0 and b > 0 else None
-            cls = "forecast" if "forecast" in (fb.epistemic_class, fc.epistemic_class) else "calculated"
-            name = {"pct_change": "change (%)", "abs_change": "change", "cagr": "CAGR"}[typ]
+            classes = {fb.epistemic_class, fc.epistemic_class}
+            cls = next((c for c in ("hypothesis", "exploratory", "estimated", "forecast") if c in classes), "calculated")
+            name = {"pct_change": "change (%)", "abs_change": "change", "cagr": f"CAGR over {years:g} years" if years else "CAGR"}[typ]
             ft = _new(ctx, metric_id=f"{typ}:{ref.key}", label=_label(f"{_name(ref)} {name}", row["keys"],
                                                                        f"{win_lab} vs {clab}", ctx, ids),
                       value=v, unit="ratio" if typ != "abs_change" else ref.metric.unit,
                       fmt="pct" if typ != "abs_change" else ref.metric.fmt, epistemic_class=cls,
                       definition=f"{name} of [{_fmt_def(ref)}]: {win_lab} vs {clab}", formula_version="1",
                       subject=fb.subject, window={"label": f"{win_lab} vs {clab}"}, sources=fb.sources + fc.sources,
-                      caveats=fb.caveats, inputs=[fb.id, fc.id], coverage=fb.coverage)
+                      caveats=fb.caveats, inputs=[fb.id, fc.id], coverage=fb.coverage,
+                      spec={"metrics": [raw], "entities": spec["entities"], "window": window, "group_by": group_by,
+                            "filters": spec.get("filters")})
             out.append({"ref": f"{typ}:{ref.key}", "keys": dict(k), "finding": ft})
     return out
 
@@ -168,7 +199,7 @@ def _table(items: list[dict]) -> list[dict]:
 
 def _round(v):
     if isinstance(v, float):
-        return float(f"{v:.6g}")
+        return int(v) if v.is_integer() and abs(v) < 1e15 else float(f"{v:.6g}")
     return v
 
 

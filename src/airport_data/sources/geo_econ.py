@@ -31,12 +31,14 @@ class NasrAirports(Source):
     tables = (
         TableSpec("nasr_airport", "APT_BASE: one row per landing facility (all US public/private).",
                   required_columns=("eff_date", "site_no", "site_type_code", "state_code", "arpt_id", "city",
-                                    "county_name", "county_assoc_state", "arpt_name", "ownership_type_code",
-                                    "facility_use_code", "lat_decimal", "long_decimal", "arpt_status"),
+                                    "country_code", "county_name", "county_assoc_state", "arpt_name", "ownership_type_code",
+                                    "facility_use_code", "lat_decimal", "long_decimal", "elev", "arpt_status"),
+                  placeholder_types=(("lat_decimal", "DOUBLE"), ("long_decimal", "DOUBLE")),
                   not_null=("arpt_id", "site_no"), unique_key=("arpt_id",), unique_key_blocking=True, min_rows=15_000),
         TableSpec("nasr_runway", "APT_RWY: one row per runway.",
                   required_columns=("site_no", "arpt_id", "rwy_id", "rwy_len", "rwy_width"),
-                  not_null=("site_no", "rwy_id"), min_rows=15_000),
+                  not_null=("site_no", "rwy_id"), min_rows=15_000,
+                  placeholder_types=(("rwy_len", "INTEGER"), ("rwy_width", "INTEGER"))),
     )
 
     def _cycles(self, http) -> list[str]:

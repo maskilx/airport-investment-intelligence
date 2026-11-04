@@ -33,6 +33,11 @@ def main(argv=None) -> int:
     out = s.call(name, args)
     if sess_path:
         sess_path.write_bytes(pickle.dumps(s.ctx.store))
+        with open(str(sess_path) + ".log.jsonl", "a") as log:      # audit trail for evaluation
+            log.write(json.dumps({"tool": name, "input": args,
+                                  "error": out.get("error") if isinstance(out, dict) else None}, default=str) + "\n")
+        if name == "compose_answer" and isinstance(out, dict) and "markdown" in out:
+            Path(str(sess_path) + ".answer.md").write_text(out["markdown"])
     if isinstance(out, dict) and "markdown" in out:
         print(out["markdown"])
     else:

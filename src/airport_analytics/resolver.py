@@ -74,7 +74,7 @@ class Resolver:
             if al["kind"] == "airport":
                 aid = next(r["airport_id"] for r in self.rows if r["code"] == al["code"])
                 return Resolution(term, "airport", [aid], [self.describe(aid)], al["note"])
-            g = self.group(dict(al["group"]))
+            g = self.group({**dict(al["group"]), "min_enplanements": 10000})
             return Resolution(term, "group", g["airport_ids"], [{"kind": "group", "group": al["group"]}], al["note"])
         exact = [r for r in self.rows if up == r["code"] or up in (r["all_codes"] or []) or up == r["faa_lid"]
                  or up == r["icao"]]
@@ -91,7 +91,8 @@ class Resolver:
         lo = t.lower()
         name_hits = [r for r in self.rows if r["country"] == "US" and r["size"] and r["size"] >= 10000 and
                      (lo == (r["city_name"] or "").split(",")[0].strip().lower() or
-                      (len(lo) >= 3 and (lo in (r["name"] or "").lower() or lo in (r["city_name"] or "").lower())))]
+                      (len(lo) >= 3 and (re.search(rf"\b{re.escape(lo)}\b", (r["name"] or "").lower())
+                                         or re.search(rf"\b{re.escape(lo)}\b", (r["city_name"] or "").lower()))))]
         name_hits.sort(key=lambda r: -(r["size"] or 0))
         cands += [{"kind": "airport", **self.describe(r["airport_id"])} for r in name_hits[:8]]
         if len(exact_us) > 1:
@@ -108,6 +109,12 @@ class Resolver:
 
         def dominant(lst):
             return len(lst) == 1 or (lst[0]["enplanements_latest_cy"] or 0) >= 10 * (lst[1]["enplanements_latest_cy"] or 1)
+        if exact_city and pool:   # a larger airport of the same metro just outside the city string -> ambiguous (Dallas: DAL vs DFW)
+            rivals = [c for c in airports if c not in pool and c.get("cbsa") and c.get("cbsa") == pool[0].get("cbsa")
+                      and (c["enplanements_latest_cy"] or 0) > (pool[0]["enplanements_latest_cy"] or 0)]
+            if rivals:
+                return Resolution(term, "ambiguous", [], rivals + pool, "the city name matches a smaller airport while a "
+                                  "larger airport serves the same metro; ask or state the assumption")
         if pool and dominant(pool):
             others = [c.get("code") or c.get("group") for c in cands if c is not pool[0]]
             note = "exact city match" if exact_city else "dominant match by size"

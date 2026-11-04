@@ -100,6 +100,10 @@ class EvalResult:
 class Engine:
     def __init__(self, con: duckdb.DuckDBPyConnection | None = None):
         self.con = con or connect()
+        try:
+            self.con.execute("SET enable_external_access = false")   # engine never needs files/network
+        except Exception:
+            pass
         self._avail: dict[str, list] = {}
         self._manifest = self.con.execute(
             "SELECT source_id, period, vintage_id FROM ingest_manifest WHERE selected ORDER BY 1, 2").fetchall()
@@ -132,6 +136,8 @@ class Engine:
     def resolve_window(self, window: dict[str, Any] | None, fact_id: str, latest_month: str | None = None) -> ResolvedWindow:
         f = FACTS[fact_id]
         w = dict(window or {"t12": True})
+        if "cy" in w and "fy" in w:
+            raise InvalidSpec("window sets both cy and fy; choose one calendar")
         avail = self.available(fact_id)
         if f.time_kind == "static":
             return ResolvedWindow("static", [], "current release", ["time window not applicable (static source)"])
@@ -167,8 +173,15 @@ class Engine:
         elif w.get("t12") or w.get("latest") or not w:
             if fact_id.startswith("taf"):
                 raise InvalidSpec("TAF metrics need an explicit fiscal year, e.g. {\"fy\": 2030}")
-            years = [avail[-1]]
-            notes.append(f"{fact_id}: latest available {key.upper()} {avail[-1]} used for a T12/latest window")
+            off = int(w.get("offset_months", 0))
+            if off % 12:
+                raise InvalidSpec(f"{fact_id} is annual: offset_months must be a multiple of 12")
+            target = avail[-1] - off // 12                     # shift along the annual calendar (review: offset ignored)
+            if target not in avail:
+                raise OutOfCoverage(f"{fact_id}: {key.upper()} {target} not available", fact=fact_id,
+                                    available=", ".join(str(y) for y in avail))
+            years = [target]
+            notes.append(f"{fact_id}: {key.upper()} {target} used for a T12/latest window (annual source)")
         elif "cy" in w and key == "fy" or "fy" in w and key == "cy":
             raise InvalidSpec(f"{fact_id} is reported in {key.upper()} — use {{\"{key}\": year}}")
         else:
@@ -176,7 +189,7 @@ class Engine:
         missing = [y for y in years if y not in avail]
         if missing:
             raise OutOfCoverage(f"{fact_id}: {key.upper()} {missing} not available", fact=fact_id,
-                                available=f"{avail[0]}…{avail[-1]}" if avail else "none")
+                                available=", ".join(str(y) for y in avail) if avail else "none")   # gaps visible
         if fact_id in STOCK_FACTS and len(years) > 1:
             raise InvalidSpec(f"{fact_id} values are stocks (e.g. population) and cannot be summed over years; "
                               f"use a single year or a pct_change transform")
@@ -196,7 +209,9 @@ class Engine:
         for src in f.sources:
             rows = [(p, v) for s, p, v in self._manifest if s == src]
             want = {str(p) for p in win.periods}
-            hit = [(p, v) for p, v in rows if p in want] if f.time_kind == "month" or src == "faa_grants" else []
+            if f.time_kind == "cy" and src == "faa_enplanements":   # CY y is published in workbook y (or y+1's prior column)
+                want |= {str(int(p) + 1) for p in win.periods}
+            hit = [(p, v) for p, v in rows if p in want] if f.time_kind in ("month", "cy", "fy") else []
             use = hit or rows
             refs.append(SourceRef(src, sorted({p for p, _ in use}), sorted({v for _, v in use})))
         return refs
@@ -299,6 +314,10 @@ class Engine:
             facts_r = {ms.fact for ms, _ in mm.values()} or {r.metric.custom_fact}
             latest = self.common_latest_month(facts_r) if t12 else None   # align only within a metric
             ref_windows[r.key] = {f: self.resolve_window(window, f, latest) for f in facts_r}
+            if facts_r & STOCK_FACTS and any(len(w.periods) > 1 for f, w in ref_windows[r.key].items()
+                                             if f not in STOCK_FACTS and w.kind in ("cy", "fy")):
+                raise InvalidSpec(f"{r.metric.id} combines a stock (single release) with a multi-year flow window; "
+                                  "use a single year")
             alias[r.key] = {}
             for nm, (ms, bp) in mm.items():
                 w = ref_windows[r.key][ms.fact]
@@ -331,7 +350,9 @@ class Engine:
         # On-Time coverage over the months shared by On-Time and T-100 (attached, labelled)
         cov_rows, cov_label = {}, None
         ontime_refs = [r for r in refs if any(FACTS[f].sources == ("bts_ontime",) for f in ref_windows[r.key])]
-        if ontime_refs and attach_coverage and all(d in ("airport", *AIRPORT_ATTR_DIMS) for d in group_by):
+        if ontime_refs and attach_coverage and filters:
+            notes.append("On-Time coverage not attached: it is defined for unfiltered airport traffic")
+        if ontime_refs and attach_coverage and not filters and all(d in ("airport", *AIRPORT_ATTR_DIMS) for d in group_by):
             ot_months = set(next(w for f, w in ref_windows[ontime_refs[0].key].items() if f.startswith("ontime")).periods)
             shared = sorted(ot_months & set(self.available("t100_dep")))
             if shared:
@@ -363,5 +384,8 @@ class Engine:
             if fs & {"taf_enp", "taf_ops"}:
                 yrs = [y for f in fs if f.startswith("taf") for y in ref_windows[r.key][f].periods]
                 cls = "observed" if yrs and max(yrs) <= self.taf_last_historical else "forecast"
+                if yrs and min(yrs) <= self.taf_last_historical < max(yrs):
+                    notes.append(f"{r.metric.id}: fiscal-year range mixes TAF history (≤FY{self.taf_last_historical}) and "
+                                 "forecast years; the total is labelled forecast")
             classes[r.key] = cls
         return EvalResult(rows, windows, lineage, classes, notes)

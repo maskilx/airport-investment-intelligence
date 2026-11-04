@@ -44,3 +44,4 @@ points = 3.0                        # score gaps below this are reported as ties
 
 [flags]
 carrier_concentration_share = 0.50  # largest operating carrier seat share
+airfield_binding_hour_share = 0.05  # share of operating hours where the (lower-bound) schedule exceeds the IMC rate

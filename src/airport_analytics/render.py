@@ -25,6 +25,28 @@ PH = re.compile(r"\{(F\d+)(?:\.(label|period|class|source|value|definition))?\}"
 ALLOW = re.compile(r"\b(?:19[9]\d|20[0-6]\d)\b|\b(?:FY|CY)\s?\d{2,4}\b|\bT-100\b|\bT12\b|^\s*\d+[.)]\s|\bQ[1-4]\b|"
                    r"\b[A-Z][A-Z0-9]{1,3}\b", re.M)   # codes must START with a letter (LAX, F12, Q1); '26M' is a number
 NUM = re.compile(r"\d")
+NUMBER_WORDS = re.compile(r"\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|"
+                          r"fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|"
+                          r"ninety|hundred|thousand|million|billion|trillion|dozen|half|third|quarter|percent|"
+                          r"double|twice|triple|tripled|doubled|halved)\b", re.I)
+ALLOWED_WORD_USES = re.compile(r"\b(one of|at least one|no one|one or more|half-hour|quarter of an hour)\b", re.I)
+
+
+def _numeric_chars(t: str) -> list[str]:
+    import unicodedata
+    out = []
+    for ch in t:
+        if not ch.isascii():
+            try:
+                unicodedata.numeric(ch)
+                out.append(ch)
+            except (TypeError, ValueError):
+                pass
+    return out
+
+
+def _codes_in(text: str, known: set[str]) -> set[str]:
+    return {t for t in re.findall(r"\b[A-Z][A-Z0-9]{2,3}\b", text) if t in known}
 LABELLED = {"forecast": "FAA forecast", "estimated": "estimate", "hypothesis": "hypothesis", "exploratory": "exploratory query"}
 
 
@@ -61,7 +83,7 @@ def _strip_allowed(text: str) -> str:
     return ALLOW.sub("", t)
 
 
-def validate(answer: dict[str, Any], store: EvidenceStore) -> list[str]:
+def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] | None = None) -> list[str]:
     errs = []
     if not isinstance(answer, dict) or not answer.get("headline") or "body" not in answer:
         return ["answer must have 'headline' and 'body'"]
@@ -77,6 +99,20 @@ def validate(answer: dict[str, Any], store: EvidenceStore) -> list[str]:
         bad = re.findall(r"[^\s]*\d[^\s]*", rest)
         if bad:
             errs.append(f"{where}: numbers must come from findings via placeholders; found literal(s) {bad[:5]}")
+        words = NUMBER_WORDS.findall(ALLOWED_WORD_USES.sub("", PH.sub("", t or "")))
+        if words:
+            errs.append(f"{where}: quantities in words are not allowed (use findings): {words[:5]}")
+        uni = _numeric_chars(PH.sub("", t or ""))
+        if uni:
+            errs.append(f"{where}: non-ASCII numeric characters are not allowed: {uni[:5]}")
+        if known_codes:     # a placeholder must not be cited in a sentence about a different airport
+            for sent in re.split(r"(?<=[.!?;])\s+|\n", t or ""):
+                fids = [f for f, _ in PH.findall(sent) if f in store]
+                codes = _codes_in(PH.sub("", sent), known_codes)
+                for fid in fids:
+                    subj = store.get(fid).subject.get("airport_code")
+                    if subj and codes and subj not in codes:
+                        errs.append(f"{where}: {fid} is about {subj} but the sentence names {sorted(codes)}")
     for i, c in enumerate(answer.get("claims", [])):
         kind = c.get("kind")
         if kind not in ("fact", "inference", "hypothesis"):
@@ -84,14 +120,16 @@ def validate(answer: dict[str, Any], store: EvidenceStore) -> list[str]:
         sup = c.get("support") or []
         if kind in ("fact", "inference") and not sup:
             errs.append(f"claims[{i}]: a {kind} must cite at least one finding in 'support'")
+        if kind == "hypothesis" and PH.search(c.get("text", "")):
+            errs.append(f"claims[{i}]: hypotheses must not carry quantities; cite findings in a fact/inference instead")
         for fid in sup:
             if fid not in store:
                 errs.append(f"claims[{i}]: support {fid} is not a finding from this session")
     return errs
 
 
-def render(answer: dict[str, Any], store: EvidenceStore) -> dict[str, Any]:
-    errs = validate(answer, store)
+def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] | None = None) -> dict[str, Any]:
+    errs = validate(answer, store, known_codes)
     if errs:
         raise InvalidSpec("answer failed grounding validation", errors=errs)
     used: list[str] = []

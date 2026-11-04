@@ -37,9 +37,11 @@ WITH cur AS (
     JOIN oa_airport a ON a.type <> 'closed'
     JOIN (VALUES (1, 'iata'), (2, 'faa_lid'), (3, 'icao')) m(prio, rule) ON (
          (m.rule = 'iata' AND a.iata_code = c.code AND ((c.country = 'US' AND a.iso_country IN ('US','PR','VI','GU','AS','MP')) OR (c.country <> 'US' AND a.iso_country = c.country)))
-      OR (m.rule = 'faa_lid' AND c.country = 'US' AND a.local_code = c.code AND a.iso_country IN ('US','PR','VI','GU','AS','MP'))
+      OR (m.rule = 'faa_lid' AND c.country = 'US' AND a.local_code = c.code AND a.iso_country IN ('US','PR','VI','GU','AS','MP')
+          AND (c.state_abr IS NULL OR coalesce(CASE WHEN a.iso_country = 'US' THEN split_part(a.iso_region, '-', 2) ELSE a.iso_country END, '') = c.state_abr))          -- same-state guard (audit F4)
       OR (m.rule = 'icao' AND c.country = 'US' AND a.ident IN ('K' || c.code, 'P' || c.code, 'T' || c.code)
-          AND coalesce(a.iata_code, '') IN ('', c.code)))   -- guard: never steal an airport that has another IATA code
+          AND coalesce(a.iata_code, '') IN ('', c.code)                 -- never steal an airport with another IATA code
+          AND (c.state_abr IS NULL OR coalesce(CASE WHEN a.iso_country = 'US' THEN split_part(a.iso_region, '-', 2) ELSE a.iso_country END, '') = c.state_abr)))          -- e.g. AK 'A03' must not bind to PA 'PA03'
 )
 SELECT airport_id, oa_id, rule FROM cand
 QUALIFY row_number() OVER (PARTITION BY airport_id ORDER BY recency,
@@ -58,9 +60,16 @@ WITH cur AS (
     FROM oa_runway WHERE NOT closed GROUP BY 1
 ), lk AS (
     SELECT CAST(code AS INTEGER) AS airport_id, description FROM bts_lookup WHERE lookup = 'L_AIRPORT_ID'
+), traffic AS (
+    SELECT origin_airport_id AS airport_id, sum(passengers) + sum(departures_performed) AS t FROM t100_segment GROUP BY 1
+), lid_owner AS (   -- one FAA LID per physical facility: the BTS id carrying the traffic owns it (audit F1)
+    SELECT m.airport_id, row_number() OVER (PARTITION BY m.oa_id ORDER BY coalesce(tr.t, 0) DESC, m.airport_id) = 1 AS owns_lid
+    FROM airport_oa_match m LEFT JOIN traffic tr USING (airport_id)
 )
 SELECT cur.airport_id, cur.current_code, codes.all_codes, cur.country,
-       nullif(a.iata_code, '') AS oa_iata, nullif(a.local_code, '') AS faa_lid, nullif(a.gps_code, '') AS icao,
+       nullif(a.iata_code, '') AS oa_iata,
+       CASE WHEN a.iso_country IN ('US','PR','VI','GU','AS','MP') AND lo.owns_lid THEN nullif(a.local_code, '') END AS faa_lid,   -- audit F2
+       nullif(a.gps_code, '') AS icao,
        coalesce(a.name, split_part(lk.description, ': ', 2)) AS name, lk.description AS bts_description, cur.city_name,
        coalesce(CASE WHEN a.iso_country = 'US' THEN split_part(a.iso_region, '-', 2) END, cur.bts_state_abr) AS state_abr,
        s.state_name, s.census_region, s.census_division,
@@ -71,9 +80,33 @@ FROM cur
 JOIN codes USING (airport_id)
 LEFT JOIN lk USING (airport_id)
 LEFT JOIN airport_oa_match m USING (airport_id)
+LEFT JOIN lid_owner lo USING (airport_id)
 LEFT JOIN oa_airport a ON a.id = m.oa_id
 LEFT JOIN rw ON rw.airport_ref = a.id
 LEFT JOIN ref_us_state s ON s.state_abr = coalesce(CASE WHEN a.iso_country = 'US' THEN split_part(a.iso_region, '-', 2) END, cur.bts_state_abr);
+
+-- NASR-only facilities referenced by FAA sources but never seen in BTS traffic (audit F10/F12): towered relievers,
+-- seaplane bases, GA airports with grants/NPIAS. Stable synthetic id = 900000000 + base-37 code of the FAA LID.
+INSERT INTO dim_airport BY NAME
+WITH refd AS (
+    SELECT locid FROM atads_airport_ops UNION SELECT locid FROM taf_enplanements WHERE coalesce(aac,0) + coalesce(aat,0) + coalesce(commuter,0) + coalesce(us_flag,0) + coalesce(frgn_flag,0) > 0
+    UNION SELECT locid FROM faa_enplanements UNION SELECT locid FROM faa_grant UNION SELECT locid FROM npias_airport
+), known AS (
+    SELECT faa_lid AS c FROM dim_airport WHERE faa_lid IS NOT NULL UNION SELECT unnest(all_codes) FROM dim_airport WHERE country = 'US'
+), n AS (
+    SELECT * FROM nasr_airport WHERE country_code = 'US' AND arpt_id IN (SELECT locid FROM refd) AND arpt_id NOT IN (SELECT c FROM known)
+    QUALIFY row_number() OVER (PARTITION BY arpt_id ORDER BY site_type_code = 'A' DESC, site_no) = 1
+), rwy AS (SELECT arpt_id, count(*) AS runways_open, max(rwy_len) AS longest_runway_ft,
+                  count(*) FILTER (WHERE rwy_len >= 7000) AS runways_7000ft_plus FROM nasr_runway GROUP BY 1)
+SELECT 900000000 + list_reduce(list_transform(string_split(n.arpt_id, ''),
+                                              lambda ch: instr('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', ch)), lambda a, b: a * 37 + b) AS airport_id,
+       n.arpt_id AS current_code, [n.arpt_id] AS all_codes, 'US' AS country, NULL AS oa_iata, n.arpt_id AS faa_lid, NULL AS icao,
+       n.arpt_name AS name, 'FAA NASR only (no BTS airport id)' AS bts_description,
+       n.city || ', ' || n.state_code AS city_name, n.state_code AS state_abr, s.state_name, s.census_region,
+       s.census_division, CASE n.site_type_code WHEN 'S' THEN 'seaplane_base' WHEN 'H' THEN 'heliport' ELSE 'nasr_facility' END AS oa_type,
+       FALSE AS oa_scheduled_service, n.lat_decimal AS latitude_deg, n.long_decimal AS longitude_deg, TRY_CAST(n.elev AS DOUBLE) AS elevation_ft,
+       'nasr_only' AS oa_match_rule, r.runways_open, r.longest_runway_ft, r.runways_7000ft_plus
+FROM n LEFT JOIN rwy r USING (arpt_id) LEFT JOIN ref_us_state s ON s.state_abr = n.state_code;
 
 -- FAA (LID-keyed) attributes joined onto the BTS identity
 CREATE OR REPLACE TABLE dim_airport_faa AS
@@ -94,8 +127,9 @@ WITH cand AS (
     SELECT unnest(all_codes), airport_id, current_code, 2 FROM dim_airport WHERE country = 'US'
 )
 SELECT lid AS faa_lid, airport_id, current_code, CASE prio WHEN 1 THEN 'faa_lid' ELSE 'bts_code_history' END AS match_rule
-FROM cand
-QUALIFY row_number() OVER (PARTITION BY lid ORDER BY prio, airport_id) = 1;
+FROM cand LEFT JOIN (SELECT origin_airport_id AS airport_id, sum(passengers) + sum(departures_performed) AS t
+                     FROM t100_segment GROUP BY 1) tr USING (airport_id)
+QUALIFY row_number() OVER (PARTITION BY lid ORDER BY prio, coalesce(tr.t, 0) DESC, airport_id) = 1;   -- ties by traffic (F1)
 
 -- ---------------------------------------------------------------- T-100 semantic view
 CREATE OR REPLACE VIEW v_t100_segment AS
@@ -131,7 +165,7 @@ WITH longf AS (
 SELECT e.* EXCLUDE (rk, current_code), e.current_code AS bts_code FROM (
     SELECT l.*, x.airport_id, x.current_code,
            row_number() OVER (PARTITION BY coalesce(CAST(x.airport_id AS VARCHAR), 'LID:' || l.locid), l.cy
-                              ORDER BY l.basis = 'own_workbook' DESC, l.workbook_cy DESC, l.locid) AS rk
+                              ORDER BY l.workbook_cy DESC, l.locid) AS rk   -- latest publication (revised value) wins (audit F13)
     FROM longf l LEFT JOIN xref_faa_lid x ON x.faa_lid = l.locid
     WHERE l.enplanements IS NOT NULL) e
 WHERE rk = 1;   -- one row per airport x CY even if the airport's LID changed (PBI -> DJT)
@@ -145,7 +179,7 @@ WITH longf AS (
 SELECT e.* EXCLUDE (rk, current_code), e.current_code AS bts_code FROM (
     SELECT l.*, x.airport_id, x.current_code,
            row_number() OVER (PARTITION BY coalesce(CAST(x.airport_id AS VARCHAR), 'LID:' || l.locid), l.cy
-                              ORDER BY l.basis = 'own_workbook' DESC, l.workbook_cy DESC, l.locid) AS rk
+                              ORDER BY l.workbook_cy DESC, l.locid) AS rk   -- latest publication (revised value) wins (audit F13)
     FROM longf l LEFT JOIN xref_faa_lid x ON x.faa_lid = l.locid
     WHERE l.landed_weight_lbs IS NOT NULL) e
 WHERE rk = 1;   -- one row per airport x CY even if the airport's LID changed (PBI -> DJT)
@@ -231,7 +265,7 @@ WITH months AS (
     FROM v_source_period_status WHERE source_id IN ('bts_t100_segment', 'bts_ontime', 'faa_atads_ops')
 ), t100 AS (
     SELECT origin_airport_id AS airport_id, _period AS period, sum(departures_performed) AS deps, sum(passengers) AS pax
-    FROM t100_segment GROUP BY ALL
+    FROM t100_segment WHERE origin <> dest GROUP BY ALL          -- same self-loop rule as v_t100_segment (audit F6)
 ), ot AS (
     SELECT origin_airport_id AS airport_id, _period AS period, count(*) FILTER (WHERE cancelled = 0) AS deps,
            NULL::DOUBLE AS pax
@@ -293,8 +327,9 @@ WHERE c.category IN ('terminal_project', 'runway_project', 'master_plan');
 -- ---------------------------------------------------------------- geography & regional economy
 -- County name normaliser (NASR "ST LOUIS" vs BEA "St. Louis"; suffixes differ by state).
 CREATE OR REPLACE MACRO norm_county(x) AS
-    regexp_replace(replace(regexp_replace(upper(coalesce(x, '')),
+    regexp_replace(replace(regexp_replace(regexp_replace(upper(coalesce(x, '')),
         ' (COUNTY|PARISH|BOROUGH|CENSUS AREA|MUNICIPALITY|CITY AND BOROUGH|CITY AND COUNTY|MUNICIPIO|\(INDEPENDENT CITY\))$', ''),
+        ' CITY$', ''),                       -- Census "Charlottesville city" = BEA "Charlottesville" (VA independent cities)
         'SAINT ', 'ST '), '[^A-Z]', '', 'g');
 
 CREATE OR REPLACE TABLE dim_county AS
@@ -305,13 +340,31 @@ SELECT DISTINCT geofips AS county_fips,
 FROM bea_county_income WHERE right(geofips, 3) <> '000' AND left(geofips, 2) NOT IN ('00', '91', '92', '93', '94', '95', '96', '97', '98');
 
 -- Airport -> county (FAA NASR official county) -> CBSA. match_rule documents how each link was made.
+-- Every county FIPS we may need: BEA counties plus CBSA member counties that BEA only publishes inside a
+-- combination area (e.g. Albemarle 51003 + Charlottesville city 51540 -> BEA 51901; Maui 15009 -> BEA 15901).
+CREATE OR REPLACE TABLE county_geo AS
+SELECT county_fips, county_name, state_abr, 'bea' AS listed_in FROM dim_county WHERE NOT is_bea_combination_area
+UNION ALL
+SELECT c.county_fips, c.county_name, s.state_abr, 'cbsa_only' FROM cbsa_county c JOIN ref_us_state s ON s.state_name = c.state_name
+WHERE c.county_fips NOT IN (SELECT county_fips FROM dim_county);
+
+-- county FIPS -> the BEA area that publishes its numbers (itself, or the combination area containing it) (audit F3)
+CREATE OR REPLACE TABLE county_bea_area AS
+SELECT g.county_fips, coalesce(b.county_fips, cmb.county_fips) AS bea_fips, b.county_fips IS NULL AND cmb.county_fips IS NOT NULL AS via_combination
+FROM county_geo g
+LEFT JOIN dim_county b ON b.county_fips = g.county_fips AND NOT b.is_bea_combination_area
+LEFT JOIN dim_county cmb ON b.county_fips IS NULL AND cmb.is_bea_combination_area AND cmb.state_abr = g.state_abr
+     AND list_contains(list_transform(regexp_split_to_array(cmb.county_name, '[+,]'), lambda s: norm_county(trim(s))), norm_county(g.county_name))
+QUALIFY row_number() OVER (PARTITION BY g.county_fips ORDER BY cmb.county_fips) = 1;
+
 CREATE OR REPLACE TABLE xref_airport_county AS
 WITH apt AS (
     SELECT d.airport_id, n.arpt_id AS faa_lid, n.county_name AS nasr_county, coalesce(nullif(n.county_assoc_state, ''), n.state_code) AS st
     FROM dim_airport d JOIN nasr_airport n ON n.arpt_id = d.faa_lid AND n.site_type_code = 'A'
 ), direct AS (
     SELECT a.*, c.county_fips, 'nasr_county_name' AS match_rule
-    FROM apt a JOIN dim_county c ON c.state_abr = a.st AND norm_county(c.county_name) = norm_county(a.nasr_county)
+    FROM apt a JOIN county_geo c ON c.state_abr = a.st AND norm_county(c.county_name) = norm_county(a.nasr_county)
+    QUALIFY row_number() OVER (PARTITION BY a.airport_id ORDER BY c.listed_in = 'cbsa_only', c.county_fips) = 1
 ), override AS ( -- airport-level geography overrides (e.g. Connecticut planning regions)
     SELECT a.*, o.county_fips, 'reference_airport_override' AS match_rule
     FROM apt a JOIN ref_airport_geo_override o ON o.faa_lid = a.faa_lid
@@ -321,7 +374,7 @@ WITH apt AS (
 ), combo AS (   -- BEA combination areas, e.g. "Albemarle + Charlottesville, VA*"
     SELECT a.*, c.county_fips, 'bea_combination_area' AS match_rule
     FROM apt a JOIN dim_county c ON c.state_abr = a.st AND c.is_bea_combination_area
-         AND list_contains(list_transform(string_split(c.county_name, '+'), lambda s: norm_county(trim(s))), norm_county(a.nasr_county))
+         AND list_contains(list_transform(regexp_split_to_array(c.county_name, '[+,]'), lambda s: norm_county(trim(s))), norm_county(a.nasr_county))
     WHERE a.airport_id NOT IN (SELECT airport_id FROM direct UNION SELECT airport_id FROM alias)
 )
 SELECT x.*, cb.cbsa_code, cb.cbsa_title, cb.metro_micro, cb.csa_code, cb.csa_title, cb.central_outlying
@@ -338,13 +391,33 @@ SELECT geofips AS county_fips, year,
 FROM bea_county_income WHERE right(geofips, 3) <> '000' GROUP BY ALL;
 
 -- CBSA totals = sum of member counties (population & income are additive; per-capita is recomputed).
+-- econ for ANY county FIPS (incl. components of BEA combination areas, flagged)
+CREATE OR REPLACE VIEW v_county_econ_mapped AS
+SELECT m.county_fips, m.bea_fips, m.via_combination, e.year, e.population, e.personal_income_usd, e.per_capita_income_usd,
+       e.suppression_flags
+FROM county_bea_area m JOIN v_county_econ_annual e ON e.county_fips = m.bea_fips;
+
 CREATE OR REPLACE VIEW v_cbsa_econ_annual AS
-SELECT cb.cbsa_code, any_value(cb.cbsa_title) AS cbsa_title, any_value(cb.metro_micro) AS metro_micro, e.year,
-       sum(e.population) AS population, sum(e.personal_income_usd) AS personal_income_usd,
-       sum(e.personal_income_usd) / nullif(sum(e.population), 0) AS per_capita_income_usd,
-       count(*) AS counties, count(*) FILTER (WHERE e.population IS NULL) AS counties_missing_population
-FROM cbsa_county cb JOIN v_county_econ_annual e ON e.county_fips = cb.county_fips
-GROUP BY cb.cbsa_code, e.year;
+-- CBSA = Σ over DISTINCT BEA areas of its member counties (combination areas counted once); members whose area
+-- has no value are counted in counties_missing_population (never silently ignored).
+WITH yrs AS (SELECT DISTINCT year FROM bea_county_income),
+mem AS (SELECT cb.cbsa_code, cb.cbsa_title, cb.metro_micro, cb.county_fips, m.bea_fips FROM cbsa_county cb
+        LEFT JOIN county_bea_area m ON m.county_fips = cb.county_fips),
+areas AS (SELECT DISTINCT mem.cbsa_code, y.year, mem.bea_fips FROM mem, yrs y WHERE mem.bea_fips IS NOT NULL),
+agg AS (SELECT a.cbsa_code, a.year, sum(e.population) AS population, sum(e.personal_income_usd) AS personal_income_usd
+        FROM areas a LEFT JOIN v_county_econ_annual e ON e.county_fips = a.bea_fips AND e.year = a.year GROUP BY 1, 2),
+miss AS (SELECT mem.cbsa_code, y.year, count(*) AS counties,
+                count(*) FILTER (WHERE e.population IS NULL) AS counties_missing_population
+         FROM mem CROSS JOIN yrs y LEFT JOIN v_county_econ_annual e ON e.county_fips = mem.bea_fips AND e.year = y.year
+         GROUP BY 1, 2)
+SELECT m.cbsa_code, t.cbsa_title, t.metro_micro, m.year,
+       CASE WHEN m.counties_missing_population = 0 THEN g.population END AS population,
+       CASE WHEN m.counties_missing_population = 0 THEN g.personal_income_usd END AS personal_income_usd,
+       CASE WHEN m.counties_missing_population = 0 THEN g.personal_income_usd / nullif(g.population, 0) END AS per_capita_income_usd,
+       m.counties, m.counties_missing_population,
+       g.population AS population_partial_if_missing
+FROM miss m JOIN (SELECT cbsa_code, min(cbsa_title) AS cbsa_title, min(metro_micro) AS metro_micro FROM cbsa_county GROUP BY 1) t USING (cbsa_code)
+LEFT JOIN agg g ON g.cbsa_code = m.cbsa_code AND g.year = m.year;
 
 -- Airport's HOME county / CBSA economy. A CBSA is an administrative proxy for the market area,
 -- not a measured catchment (multi-airport regions share a CBSA; travellers cross CBSA borders).
@@ -355,5 +428,5 @@ SELECT x.airport_id, d.current_code, x.county_fips, x.cbsa_code, x.cbsa_title, x
        m.per_capita_income_usd AS cbsa_per_capita_income_usd
 FROM xref_airport_county x
 JOIN dim_airport d USING (airport_id)
-LEFT JOIN v_county_econ_annual c ON c.county_fips = x.county_fips
+LEFT JOIN v_county_econ_mapped c ON c.county_fips = x.county_fips
 LEFT JOIN v_cbsa_econ_annual m ON m.cbsa_code = x.cbsa_code AND m.year = c.year;

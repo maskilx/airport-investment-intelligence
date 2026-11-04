@@ -93,7 +93,12 @@ def _names(m):
 
 def _cov(e: Engine, f: str) -> str:
     av = e.available(f)
-    return f"{av[0]}…{av[-1]}" if av else "static"
+    if not av:
+        return "static"
+    if isinstance(av[0], int):           # annual: list actual years so gaps are visible
+        gaps = [y for y in range(av[0], av[-1] + 1) if y not in av]
+        return f"{av[0]}…{av[-1]}" + (f" (missing: {', '.join(map(str, gaps))})" if gaps else "")
+    return f"{av[0]}…{av[-1]}"
 
 
 def _run(s: Session, a: dict) -> Any:
@@ -108,6 +113,10 @@ def _derive(s: Session, a: dict) -> Any:
     fs = [s.ctx.store.get(i) for i in ids]
     if any(not isinstance(f.value, (int, float)) for f in fs):
         raise InvalidSpec("derive needs numeric findings with values")
+    if op in ("sum", "difference") and any("Area-level value" in c for f in fs for c in f.caveats) or \
+            (op == "sum" and any(f.metric_id.startswith(("cbsa_", "county_")) for f in fs)):
+        raise InvalidSpec("these are area-level values (shared CBSA/county); adding them double-counts shared areas — "
+                          "use run_analysis over the airport set (distinct-area aggregation) instead")
     if op != "ratio" and len({f.unit for f in fs}) > 1:
         raise InvalidSpec(f"units differ ({[f.unit for f in fs]}); only ratio is allowed across units")
     v = {"difference": lambda: fs[0].value - fs[1].value,
@@ -130,16 +139,58 @@ BANNED = re.compile(r"\b(attach|detach|copy|install|load|export|import|create|in
                     r"set|call|read_\w+|glob|getenv|system|from\s+'|httpfs)\b", re.I)
 
 
+def _sql_refs(con, q: str) -> tuple[set[str], set[str], set[str]]:
+    """(base tables, table functions, scalar function names) from DuckDB's own parse tree."""
+    import json as _j
+    ast = _j.loads(con.execute("SELECT json_serialize_sql(?)", [q]).fetchone()[0])
+    if ast.get("error"):
+        raise InvalidSpec(f"SQL does not parse: {ast.get('error_message', '')[:200]}")
+    if len(ast.get("statements", [])) != 1:
+        raise InvalidSpec("exactly one statement allowed")
+    tables, tfuncs, funcs, ctes = set(), set(), set(), set()
+
+    def walk(n):
+        if isinstance(n, dict):
+            t = n.get("type")
+            if t == "BASE_TABLE":
+                tables.add(((n.get("schema_name") or "") + "." if n.get("schema_name") else "") + n.get("table_name", "").lower())
+            elif t == "TABLE_FUNCTION":
+                tfuncs.add(str(n.get("function", {}).get("function_name", "?")).lower())
+            if n.get("class") == "FUNCTION" or t == "FUNCTION":
+                funcs.add(str(n.get("function_name", "")).lower())
+            for k, v in (n.get("cte_map") or {}).items() if isinstance(n.get("cte_map"), dict) else []:
+                pass
+            if "cte_map" in n and isinstance(n["cte_map"], dict):
+                for m in n["cte_map"].get("map", []):
+                    ctes.add(str(m.get("key", "")).lower())
+            for v in n.values():
+                walk(v)
+        elif isinstance(n, list):
+            for v in n:
+                walk(v)
+    walk(ast["statements"][0])
+    if ast["statements"][0].get("node", {}).get("type") not in ("SELECT_NODE", "SET_OPERATION_NODE", "CTE_NODE", None):
+        raise InvalidSpec("only SELECT queries are allowed")
+    return tables - ctes, tfuncs, funcs
+
+
+FILE_FUNCS = re.compile(r"^(read_|sniff_|glob|parquet_|json_|getenv|current_setting|duckdb_|pragma_|which_secret|load|install)")
+
+
 def _sql(s: Session, a: dict) -> Any:
     q = (a.get("sql") or "").strip().rstrip(";")
-    if ";" in q or not re.match(r"^(select|with)\b", q, re.I) or BANNED.search(q):
+    if not re.match(r"^\s*(select|with)\b", q, re.I) or BANNED.search(q):
         raise InvalidSpec("query_sql accepts one read-only SELECT/WITH over whitelisted views")
-    refs = {t.lower() for t in re.findall(r"\b(?:from|join)\s+([a-z_][a-z0-9_]*)", q, re.I)}
-    ctes = {t.lower() for t in re.findall(r"\b([a-z_][a-z0-9_]*)\s+as\s*\(", q, re.I)}
-    bad = refs - ctes - set(SQL_VIEWS)
-    if bad:
-        raise InvalidSpec(f"not whitelisted: {sorted(bad)}", allowed=list(SQL_VIEWS))
-    cur = s.engine.con.execute(f"SELECT * FROM ({q}) LIMIT 201")
+    tables, tfuncs, funcs = _sql_refs(s.engine.con, q)
+    bad = {t for t in tables if t not in SQL_VIEWS}
+    if bad or tfuncs or any(FILE_FUNCS.match(f) for f in funcs):
+        raise InvalidSpec("query_sql: only whitelisted views; no table functions or system/file functions",
+                          rejected=sorted(bad | tfuncs | {f for f in funcs if FILE_FUNCS.match(f)}), allowed=list(SQL_VIEWS))
+    refs = tables
+    try:
+        cur = s.engine.con.execute(f"SELECT * FROM ({q}) LIMIT 201")
+    except Exception as e:   # engine errors are reported, never raised to the caller
+        raise InvalidSpec(f"query failed: {type(e).__name__}: {str(e)[:200]}") from None
     cols = [d[0] for d in cur.description]
     rows = cur.fetchall()
     srcs = [SourceRef(VIEW_SOURCES[v], [], []) for v in sorted(refs & set(VIEW_SOURCES))]
@@ -163,11 +214,12 @@ def _sql(s: Session, a: dict) -> Any:
 
 def _compose(s: Session, a: dict) -> Any:
     ans = a.get("answer") or a
-    errs = validate(ans, s.ctx.store)
+    codes = {r["code"] for r in s.ctx.resolver.rows if r["code"]}
+    errs = validate(ans, s.ctx.store, codes)
     if errs:
         return {"error": "grounding_validation_failed", "errors": errs,
                 "hint": "Put every number in a {F#} placeholder; cite findings in claims[].support; label hypotheses."}
-    return render(ans, s.ctx.store)
+    return render(ans, s.ctx.store, codes)
 
 
 def _finding(s: Session, a: dict) -> Any:

@@ -17,7 +17,7 @@ from typing import Any, Callable
 CATALOG_VERSION = "2.0.0"
 
 # ------------------------------------------------------------------ facts
-PAX = "service_type IN ('passenger', 'combi')"
+PAX = "service_type IN ('passenger', 'combi', 'seaplane')"   # passenger-carrying configurations (audit F11)
 
 
 @dataclass(frozen=True)
@@ -53,9 +53,11 @@ FACTS: dict[str, Fact] = {f.id: f for f in [
          description="On-Time arrivals (domestic, reporting carriers only)"),
     Fact("atads", "SELECT *, period_month AS t FROM v_atads_airport_ops WHERE airport_id IS NOT NULL", "month",
          ("faa_atads_ops",), {}, description="FAA ATADS tower operations (towered airports, tower hours)"),
-    Fact("taf_enp", "SELECT *, fiscal_year AS t FROM v_taf_enplanements WHERE airport_id IS NOT NULL", "fy",
+    Fact("taf_enp", """SELECT e.*, e.fiscal_year AS t FROM v_taf_enplanements e JOIN dim_airport d USING (airport_id)
+                        QUALIFY dense_rank() OVER (PARTITION BY e.airport_id ORDER BY (e.locid = d.faa_lid) DESC, e.locid) = 1""", "fy",
          ("faa_taf",), {"record_type": "record_type"}, description="FAA TAF enplanements (fiscal years)"),
-    Fact("taf_ops", "SELECT *, fiscal_year AS t FROM v_taf_operations WHERE airport_id IS NOT NULL", "fy",
+    Fact("taf_ops", """SELECT e.*, e.fiscal_year AS t FROM v_taf_operations e JOIN dim_airport d USING (airport_id)
+                        QUALIFY dense_rank() OVER (PARTITION BY e.airport_id ORDER BY (e.locid = d.faa_lid) DESC, e.locid) = 1""", "fy",
          ("faa_taf",), {"record_type": "record_type"}, description="FAA TAF operations (fiscal years)"),
     Fact("acais", "SELECT *, cy AS t FROM v_faa_enplanements_annual WHERE airport_id IS NOT NULL", "cy",
          ("faa_enplanements",), {}, description="FAA CY passenger boardings (ACAIS)"),
@@ -63,14 +65,16 @@ FACTS: dict[str, Fact] = {f.id: f for f in [
                           FROM xref_airport_county x JOIN v_cbsa_econ_annual e ON e.cbsa_code = x.cbsa_code""", "cy",
          ("bea_cainc1", "census_cbsa", "faa_nasr_apt"), {}, area_key="area",
          description="BEA population & income of the airport's home CBSA (distinct-area aggregation)"),
-    Fact("area_county", """SELECT x.airport_id, e.year AS t, e.county_fips AS area, e.population, e.personal_income_usd
-                            FROM xref_airport_county x JOIN v_county_econ_annual e ON e.county_fips = x.county_fips""", "cy",
+    Fact("area_county", """SELECT x.airport_id, e.year AS t, e.bea_fips AS area, e.population, e.personal_income_usd
+                            FROM xref_airport_county x JOIN v_county_econ_mapped e ON e.county_fips = x.county_fips""", "cy",
          ("bea_cainc1", "faa_nasr_apt"), {}, area_key="area",
          description="BEA population & income of the airport's home county"),
     Fact("grants", "SELECT *, fiscal_year AS t FROM v_faa_grant WHERE airport_id IS NOT NULL", "fy",
          ("faa_grants",), {}, description="Awarded FAA grants (FY2021+)"),
     Fact("npias", """SELECT x.airport_id, NULL::INTEGER AS t, n.* FROM npias_airport n
-                      JOIN xref_faa_lid x ON x.faa_lid = n.locid""", "static", ("faa_npias",), {},
+                      JOIN xref_faa_lid x ON x.faa_lid = n.locid JOIN dim_airport d ON d.airport_id = x.airport_id
+                      QUALIFY row_number() OVER (PARTITION BY x.airport_id ORDER BY (n.locid = d.faa_lid) DESC, n.locid) = 1""",
+         "static", ("faa_npias",), {},
          description="NPIAS 2025-2029 development NEED estimates (not funding)"),
     Fact("airport_attr", "SELECT d.*, NULL::INTEGER AS t FROM dim_airport d", "static",
          ("ourairports", "bts_t100_segment"), {}, description="Airport attributes (runways from OurAirports)"),
@@ -186,6 +190,8 @@ CAVEATS = {
     "TOWER_SCOPE": "ATADS counts operations at towered airports during tower hours, all user classes.",
     "SEAT_FACTOR_WEAK": "Seat factor varies little across large airports and is not, by itself, evidence of unmet demand.",
     "PEAK_LOWER_BOUND": "Scheduled peak from On-Time is a lower bound on total scheduled operations (reporting carriers only).",
+    "AREA_NOT_ADDITIVE": "Area-level value (home CBSA/county): airports or groups sharing an area repeat the same value; never add these across rows.",
+    "ONTIME_LOW_COVERAGE": "On-Time covers less than 70% of this airport's airline departures; delay/peak figures describe a partial slice.",
     "OPERATING_CARRIER": "T-100 carriers are operating carriers; regional affiliates appear separately from their mainline partner.",
 }
 

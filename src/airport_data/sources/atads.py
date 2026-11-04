@@ -137,4 +137,4 @@ class AtadsAirportOperations(Source):
                           f'OR total_operations IS DISTINCT FROM itn_total + local_total')
         yield error("component_sums", bad == 0, f"{bad} rows whose components do not add up", value=bad)
         zero = scalar(con, f'SELECT count(*) FROM "{t}" WHERE total_operations = 0')
-        yield warning("zero_operation_rows", True, f"{zero} towered airports reporting 0 operations", value=zero)
+        yield warning("zero_operation_rows", zero == 0, f"{zero} towered airports reporting 0 operations", value=zero)

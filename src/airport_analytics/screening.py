@@ -61,6 +61,7 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
     eligible = [a for a in ids if enp.get(a) and enp[a].value is not None and enp[a].value >= gate]
     below = [{"airport": ctx.resolver.code(a), "enplanements": {"id": enp[a].id, "value": _round(enp[a].value)}}
              for a in ids if a not in eligible and enp.get(a) and enp[a].value]
+    no_record = [ctx.resolver.code(a) for a in ids if not enp.get(a) or enp[a].value is None]   # unknown, not zero
     if not eligible:
         raise InsufficientData(f"no airport in the set meets the {gate:,.0f}-enplanement gate", below_scale=below)
     vals = _per_airport({"entities": spec["entities"]}, eligible, notes, ctx, [c["metric"] for c in comps])
@@ -124,7 +125,9 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
                       caveats=["Lower bound: excludes international, non-reporting and GA traffic.",
                                f"Capacity rate: FAA Airport Capacity Profile (verified), {imc[code]:g} ops/h."])
             findings.append(fh.brief())
-            flags.append({"flag": "AIRFIELD_BINDING" if share and share > 0 else "AIRFIELD_HEADROOM_IMC",
+            thr = float(cfg["flags"].get("airfield_binding_hour_share", 0.05))
+            flags.append({"flag": "AIRFIELD_BINDING" if share is not None and share >= thr else "AIRFIELD_HEADROOM_IMC",
+                          "threshold_hour_share": thr,
                           "detail": {"id": fh.id, "value": _round(share)}, "class": "calculated (lower bound)"})
         else:
             flags.append({"flag": "AIRFIELD_UNKNOWN", "detail": "no verified FAA capacity rate", "class": "not_established"})
@@ -146,6 +149,7 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
                                           "grants_awarded_fy21_25_usd": gr and {"id": gr.id, "value": _round(gr.value)}}})
         findings.append(f.brief())
     return {"op": "screen", "model_version": cfg["model_version"], "scenario": scen_name, "disclaimer": cfg["disclaimer"],
-            "gate": {"min_enplanements": gate, "below_scale": below}, "table": table, "not_scored": not_scored,
+            "gate": {"min_enplanements": gate, "below_scale": below,
+                     "no_faa_enplanement_record": no_record[:50], "n_no_record": len(no_record)}, "table": table, "not_scored": not_scored,
             "findings": findings, "max_rank_shift_across_scenarios":
                 {r["airport"]: max(r["scenario_ranks"].values()) - min(r["scenario_ranks"].values()) for r in table}}

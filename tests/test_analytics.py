@@ -136,7 +136,7 @@ def test_ontime_metrics_carry_coverage(S):
     cov = {S.ctx.store.get(f["id"]).subject["airport_code"]: f["coverage"]["ratio"] for f in r["findings"]}
     assert cov["JFK"] < 0.7 < cov["SNA"]
     jfk = next(f for f in r["findings"] if S.ctx.store.get(f["id"]).subject["airport_code"] == "JFK")
-    assert any("ONTIME_LOW_COVERAGE" in c or "coverage" in c.lower() for c in jfk["caveats"])
+    assert any("less than 70%" in c for c in jfk["caveats"])
 
 
 # ---------------------------------------------------------------- grounding validator
@@ -162,3 +162,59 @@ def test_sql_tool_is_read_only_and_whitelisted(S):
     out = S.call("query_sql", {"sql": "SELECT current_code, runways_open FROM dim_airport WHERE current_code = 'SFO'"})
     cell = out["rows"][0]["runways_open"]
     assert S.ctx.store.get(cell["id"]).epistemic_class == "exploratory"
+
+
+# ---------------------------------------------------------------- regressions from the Grok adversarial review
+@pytest.mark.parametrize("q", [
+    "SELECT count(*) AS n FROM dim_airport, ingest_manifest", "SELECT count(*) AS n FROM /**/ingest_manifest",
+    "SELECT count(*) AS n FROM dim_airport, information_schema.tables", "SELECT * FROM duckdb_tables()",
+    "SELECT current_setting('enable_external_access')", "SELECT * FROM dim_airport d, sniff_csv('data/reference/us_states.csv') t",
+    "WITH x AS (SELECT * FROM ingest_manifest) SELECT * FROM x"])
+def test_sql_bypasses_blocked(S, q):
+    assert S.call("query_sql", {"sql": q}).get("error")
+
+
+def test_annual_default_change_is_not_self_comparison(S):
+    r = run(S, {"op": "aggregate", "metrics": [{"id": "acais_enplanements", "transform": {"type": "pct_change"}}],
+                "entities": {"airports": ["SFO"]}})
+    assert "CY2025 vs CY2024" in r["findings"][0]["label"] and r["findings"][0]["value"] != 0
+
+
+@pytest.mark.parametrize("spec,code", [
+    ({"op": "aggregate", "metrics": [{"id": "npias_need_usd", "transform": {"type": "abs_change", "compare_window": {"cy": 2020}}}],
+      "entities": {"airports": ["SFO"]}, "window": {"cy": 2024}}, "not_applicable"),
+    ({"op": "aggregate", "metrics": [{"id": "passengers", "window": {"cy": 2025},
+      "transform": {"type": "pct_change", "compare_window": {"start": "2024-01", "end": "2024-06"}}}], "entities": {"airports": ["SFO"]}}, "invalid_spec"),
+    ({"op": "aggregate", "metrics": ["npias_need_per_enplanement"], "entities": {"airports": ["SFO"]}, "window": {"cy_range": [2024, 2025]}}, "invalid_spec"),
+])
+def test_invalid_transforms_refused(S, spec, code):
+    from airport_analytics.evidence import AnalyticsError
+    with pytest.raises(AnalyticsError) as e:
+        run(S, spec)
+    assert e.value.code == code
+
+
+def test_cagr_years_inferred(S):
+    r = run(S, {"op": "aggregate", "entities": {"airports": ["SEA"]}, "metrics": [
+        {"id": "passengers", "window": {"cy": 2025}, "transform": {"type": "cagr", "compare_window": {"cy": 2024}, "years": 10}}]})
+    f = r["findings"][0]
+    assert "over 1 years" in f["label"]
+
+
+def test_grounding_rejects_words_unicode_and_entity_swap(S):
+    r = run(S, {"op": "aggregate", "metrics": ["passengers"], "entities": {"airports": ["SFO"]}})
+    fid = r["findings"][0]["id"]
+    for body in ("SFO enplaned twenty six million passengers.", "The factor was ½.", f"LAX enplaned {{{fid}}}."):
+        assert S.call("compose_answer", {"answer": {"headline": "h", "body": body}}).get("error"), body
+    assert not S.call("compose_answer", {"answer": {"headline": "h", "body": f"SFO enplaned {{{fid}}}."}}).get("error")
+
+
+def test_area_values_not_summable(S):
+    r = run(S, {"op": "aggregate", "metrics": ["cbsa_population"], "entities": {"airports": ["LAX", "SNA"]}, "window": {"cy": 2024}})
+    ids = [f["id"] for f in r["findings"]]
+    assert S.call("derive", {"op": "sum", "findings": ids}).get("error")
+    assert any("never add" in c for c in r["findings"][0]["caveats"])
+
+
+def test_dallas_is_ambiguous(S):
+    assert S.call("resolve_entities", {"terms": ["Dallas"]})["resolutions"][0]["kind"] == "ambiguous"

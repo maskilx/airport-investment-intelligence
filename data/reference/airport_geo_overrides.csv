@@ -2,3 +2,6 @@ faa_lid,county_fips,legacy_county_fips,reason
 BDL,09110,09003,"Connecticut replaced counties with planning regions (Census 2022). Windsor Locks -> Capitol Planning Region; NASR still reports legacy Hartford County"
 HVN,09170,09009,"East Haven/New Haven -> South Central Connecticut Planning Region; NASR reports legacy New Haven County"
 GON,09180,09011,"Groton -> Southeastern Connecticut Planning Region; NASR reports legacy New London County"
+BDR,09120,09001,"Stratford -> Greater Bridgeport Planning Region (MetroCOG); NASR reports legacy Fairfield County"
+HFD,09110,09003,"Hartford -> Capitol Planning Region; NASR reports legacy Hartford County"
+DXR,09190,09001,"Danbury -> Western Connecticut Planning Region (WestCOG); NASR reports legacy Fairfield County"

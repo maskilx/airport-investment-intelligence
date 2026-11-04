@@ -85,12 +85,16 @@ class T100SegmentAllCarriers(BtsFormSource):
     tables = (TableSpec(
         name="t100_segment",
         description="One row per carrier x origin x dest x aircraft type/config x service class x month.",
-        required_columns=("year", "month", "unique_carrier", "carrier_name", "origin", "dest", "origin_airport_id",
+        required_columns=("year", "month", "unique_carrier", "unique_carrier_entity", "region", "carrier_name", "origin", "dest", "origin_airport_id",
                           "dest_airport_id", "origin_city_name", "dest_city_name", "origin_state_abr",
                           "dest_state_abr", "origin_country", "dest_country", "departures_scheduled",
                           "departures_performed", "seats", "passengers", "freight", "mail", "distance",
                           "aircraft_type", "aircraft_config", "class", "data_source"),
         not_null=("year", "month", "origin", "dest", "unique_carrier", "origin_airport_id", "dest_airport_id"),
+        # true grain (audit F9): carrier entity and region distinguish otherwise identical rows
+        unique_key=("year", "month", "unique_carrier", "unique_carrier_entity", "region", "origin_airport_id",
+                    "dest_airport_id", "aircraft_type", "aircraft_config", "class", "data_source"),
+        unique_key_blocking=True,
         non_negative=("departures_performed", "seats", "passengers", "freight", "distance"),
         min_rows=25_000, max_rows=150_000,
         placeholder_types=tuple({**{c: "BIGINT" for c in ("year", "month", "origin_airport_id", "dest_airport_id",
@@ -119,6 +123,8 @@ class T100SegmentAllCarriers(BtsFormSource):
         yield warning("self_loop_rows", loops == 0, f"{loops} rows with origin = dest (excluded in v_t100_segment)", value=loops)
         over = scalar(con, f'SELECT count(*) FROM "{t}" WHERE seats > 0 AND passengers > seats')
         yield warning("passengers_le_seats", over == 0, f"{over} rows with passengers > seats", value=over)
+        z = scalar(con, f'SELECT count(*) FROM "{t}" WHERE seats = 0 AND passengers > 0')
+        yield warning("passengers_without_seats", z == 0, f"{z} rows with passengers but 0 seats", value=z)
         cfg = scalar(con, f'SELECT count(*) FROM "{t}" WHERE aircraft_config NOT IN (0,1,2,3,4,9)')
         yield error("aircraft_config_domain", cfg == 0, f"{cfg} rows with unknown aircraft_config", value=cfg)
 
