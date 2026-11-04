@@ -225,6 +225,21 @@ This removes the main open uncertainty: whether the product model completes tool
 | Repo size | 436 MB pack (raw data); move raw data to Git LFS before publishing |
 | Deferred | DB1C fares/O&D, terminal-capacity verification, multi-user auth, cloud deployment, LiveKit upgrade |
 
+## 8a. Decisions as built (Phase 3 implementation, 2026-11-04)
+
+What changed from this plan once implementation started, and why:
+
+| Plan | Built | Reason |
+|---|---|---|
+| Vite + React + assistant-ui frontend | **Vanilla ES modules + vendored Vega-Lite**, no build step (`web/`) | The valuable parts are our own panels: tool strips, evidence chips, provenance and memory inspectors, charts. A chat-primitives library adds a toolchain without covering them. One process serves everything. |
+| Generic chat history | **Structured memory** ([docs/08](08-memory-and-context.md)): SQLite transcript, stable F# findings, state with versioned assumptions and ordered results, number-free summaries, BM25 recall, token-budgeted context | The user's invariant that a summary must never be a source of numbers. Every memory framework surveyed stores paraphrases. |
+| Model: Gemini via SDK | **Gemini REST adapter**, stdlib only | No SDK dependency. It is opt-in (`AIRPORT_ALLOW_GEMINI=1`), with a per-process request budget, a usage log, a stop on 429 and no fallback. Free-form objects are sent as JSON strings because Gemini rejects empty OBJECT schemas. |
+| — | **Offline rule-based planner** (`offline.py`) | Demos and end-to-end tests with zero model calls. It is clearly labelled, declines what it cannot do, and passes the same grounding validator. |
+| SearXNG/ddgs web search | **Keyless DuckDuckGo HTML + SSRF-guarded fetch**, behind a provider protocol | Zero dependencies. Refusals are reported, never evaded. SearXNG can be plugged in behind the same protocol. |
+| `{W#}` placeholders | External claims need a **verbatim quote verified against the fetched text** | Web numbers can be shown only as verified quotes, never as findings. |
+| Pipecat voice | **Browser Web Speech** (input + read-aloud) over the same agent | Zero cost, no server component. Pipecat + WebRTC remains the real-time upgrade path. Hebrew TTS is still the open gap. |
+| Charts from a ChartSpec | As planned, plus horizontal labelled bars for few categories, and a click on a mark opens its finding | — |
+
 ## 9. Sources
 Research briefs with full URL lists: `research/next_phase_taskA.md` (orchestration, backend, charts, observability),
 `research/next_phase_taskB.md` (chat UI, voice, web research). Key repositories:
