@@ -232,11 +232,15 @@ def main() -> None:                                       # python -m airport_ap
         app = create_app()
     except Exception as e:                               # misconfiguration: say what to fix, never fall back
         print(f"  ERROR: could not start the model backend: {e}")
-        print("  Offline mode needs no key: unset AIRPORT_MODEL (or set AIRPORT_MODEL=offline) in .env")
+        print("  Offline mode needs no key: ./scripts/mode.sh offline")
         raise SystemExit(2)
     st = app.state.app
     b = st.backend
-    if getattr(b, "name", "") == "gemini":
+    if getattr(b, "name", "") == "groq":
+        print(f"  Mode               : GROQ    (model {b.model}; {b.requests}/{b.max_requests} requests used today, "
+              f"UTC; per-request context cap {b.max_context_tokens}; no fallback)")
+        print(f"  Usage log          : {b.usage_log}")
+    elif getattr(b, "name", "") == "gemini":
         print(f"  Mode               : GEMINI  (model {b.model}; {b.requests}/{b.max_requests} requests used today, "
               f"UTC; no paid fallback)")
         print(f"  Usage log          : {b.usage_log}")

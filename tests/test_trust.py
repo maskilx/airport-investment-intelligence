@@ -682,3 +682,119 @@ def test_sensitivity_is_computed_and_false_robustness_is_rejected():
            "conditional_on": ["x not established"], "would_change": ["y"], "tradeoffs": ["t"]}
     errs = validate({"headline": "h", "body": "x", "claims": [bad]}, a.evidence, question="Which is better, PVD or BDL?")
     assert any("claims robustness" in e for e in errs)
+
+
+# ---------------------------------------------------------------- Groq provider (fake endpoint only: no key, no quota)
+class _FakeResp:
+    def __init__(self, body, headers=None):
+        self._b = json.dumps(body).encode()
+        self.headers = headers or {"x-ratelimit-remaining-tokens": "7000", "x-ratelimit-reset-tokens": "2.5s",
+                                   "x-ratelimit-limit-tokens": "8000"}
+
+    def read(self):
+        return self._b
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _groq_env(monkeypatch, tmp_path):
+    for k, v in {"AIRPORT_ALLOW_GROQ": "1", "GROQ_API_KEY": "test-not-a-key",
+                 "AIRPORT_GROQ_USAGE_LOG": str(tmp_path / "groq.jsonl")}.items():
+        monkeypatch.setenv(k, v)
+
+
+def _tool_call(name, args, i):
+    return {"model": "openai/gpt-oss-120b", "usage": {"prompt_tokens": 100, "completion_tokens": 10},
+            "choices": [{"finish_reason": "tool_calls", "message": {"role": "assistant", "content": None, "tool_calls": [
+                {"id": f"call_{i}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}]}}]}
+
+
+def test_groq_adapter_runs_the_same_agent_end_to_end(monkeypatch, tmp_path):
+    import urllib.request
+    from airport_agent.models import GroqBackend
+    from airport_agent.runtime import Agent
+    _groq_env(monkeypatch, tmp_path)
+    sent = []
+    script = [_tool_call("run_analysis", {"spec": {"op": "aggregate", "metrics": ["seat_factor"],
+                                                   "entities": {"airports": ["SFO"]}}}, 1),
+              _tool_call("compose_answer", {"answer": {"headline": "SFO seat factor", "body": "SFO: {F1} ({F1.period}).",
+                                                       "claims": [{"kind": "fact", "text": "{F1}", "support": ["F1"]}]}}, 2)]
+
+    def fake(req, timeout=None, context=None):
+        sent.append(json.loads(req.data))
+        assert req.get_header("Authorization") == "Bearer test-not-a-key"
+        return _FakeResp(script[len(sent) - 1])
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    g = GroqBackend(sleep=lambda s: None)
+    r = Agent(g).ask("What is the seat factor at SFO?")
+    assert r.kind == "answer" and r.cited_findings == ["F1"]
+    first, second = sent
+    assert first["model"] == "openai/gpt-oss-120b" and first["messages"][0]["role"] == "system"
+    assert {t["function"]["name"] for t in first["tools"]} >= {"run_analysis", "compose_answer", "check_information"}
+    assert first["parallel_tool_calls"] is False and first["include_reasoning"] is False
+    roles = [m["role"] for m in second["messages"]]
+    assert roles[-2:] == ["assistant", "tool"] and second["messages"][-1]["tool_call_id"] == "call_1"
+    assert sum(1 for _ in open(tmp_path / "groq.jsonl")) == 2 and g.rate["remaining_tokens"] == 7000
+
+
+def test_groq_errors_stop_without_fallback_and_free_tier_caps_context(monkeypatch, tmp_path):
+    import io
+    import urllib.error
+    import urllib.request
+    from airport_agent.models import GroqBackend, ModelError
+    from airport_agent.runtime import Agent
+    _groq_env(monkeypatch, tmp_path)
+
+    def fake(req, timeout=None, context=None):
+        raise urllib.error.HTTPError(req.full_url, 429, "Too Many", {}, io.BytesIO(b'{"error":"rate"}'))
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    g = GroqBackend(sleep=lambda s: None)
+    a = Agent(g)
+    assert a.limits.max_context_tokens == g.max_context_tokens == 8000          # smaller requests for the free tier
+    r = a.ask("seat factor SFO")
+    assert r.kind == "error" and "429" in r.errors[0]
+    with pytest.raises(ModelError):
+        GroqBackend(model="llama-3.3-70b-versatile")                             # unsupported / enterprise-only
+    monkeypatch.delenv("AIRPORT_ALLOW_GROQ")
+    with pytest.raises(ModelError):
+        GroqBackend()
+
+
+def test_groq_paces_on_rate_limit_headers_instead_of_failing(monkeypatch, tmp_path):
+    from airport_agent.models import GroqBackend
+    _groq_env(monkeypatch, tmp_path)
+    waits = []
+    g = GroqBackend(sleep=waits.append)
+    g.rate = {"remaining_tokens": 500.0, "reset_tokens_s": 12.0}
+    g._pace(3000)
+    assert waits == [12.5]
+    g.rate = {"remaining_tokens": 7900.0, "reset_tokens_s": 12.0}
+    g._pace(1000)
+    assert waits == [12.5]
+
+
+def test_groq_smoke_script_never_exceeds_five_requests(monkeypatch, tmp_path):
+    import importlib.util
+    import urllib.request
+    calls = []
+
+    def fake(req, timeout=None, context=None):
+        calls.append(req.full_url)
+        return _FakeResp(_tool_call("describe_catalog", {}, len(calls)),
+                         {"x-ratelimit-remaining-tokens": "250000", "x-ratelimit-reset-tokens": "1s"})
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    _groq_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("AIRPORT_GROQ_SMOKE_COUNTER", str(tmp_path / "counter.json"))
+    spec = importlib.util.spec_from_file_location("groq_smoke", str(get_paths().root.parent / "tools" / "groq_smoke.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod, "ROOT", tmp_path)
+    monkeypatch.setattr(mod, "model_in_catalog", lambda m, k: (True, "fake catalog"))
+    mod.main()
+    assert len(calls) == 5 and json.loads((tmp_path / "counter.json").read_text())["used"] == 5
+    calls.clear()
+    assert mod.main() == 2 and not calls                                        # persistent: no further request

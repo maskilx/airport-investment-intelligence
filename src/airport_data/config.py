@@ -67,7 +67,7 @@ def load_env(path: str | os.PathLike | None = None) -> list[str]:
 KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT = "airport-investment-intelligence", "GEMINI_API_KEY"
 
 
-def keychain_secret() -> str | None:
+def keychain_secret(service: str | None = None, account: str | None = None) -> str | None:
     """Gemini key from the macOS Keychain (written by scripts/configure-gemini-key.sh). The secret comes back on the
     `security` tool's stdout; it is never part of a command line or a log."""
     import subprocess
@@ -75,12 +75,21 @@ def keychain_secret() -> str | None:
     if sys.platform != "darwin":
         return None
     try:
-        r = subprocess.run(["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w"],
+        r = subprocess.run(["security", "find-generic-password", "-s", service or KEYCHAIN_SERVICE,
+                            "-a", account or KEYCHAIN_ACCOUNT, "-w"],
                            capture_output=True, text=True, timeout=10)
     except Exception:
         return None
     v = r.stdout.strip()
     return v if r.returncode == 0 and v else None
+
+
+GROQ_KEYCHAIN_SERVICE, GROQ_KEYCHAIN_ACCOUNT = "airport-investment-intelligence-groq", "GROQ_API_KEY"
+
+
+def load_groq_key() -> str | None:
+    """Groq key: environment first, then its OWN Keychain item (separate from the Gemini credential)."""
+    return os.environ.get("GROQ_API_KEY") or keychain_secret(GROQ_KEYCHAIN_SERVICE, GROQ_KEYCHAIN_ACCOUNT)
 
 
 def load_gemini_key() -> str | None:

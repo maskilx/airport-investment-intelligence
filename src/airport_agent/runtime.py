@@ -224,6 +224,9 @@ class Agent:
         self.state = self.store.load_state(self.conv_id)
         self.ctx = ContextBuilder(self.store, budget)
         self.limits = limits or Limits()
+        cap = getattr(backend, "max_context_tokens", None)          # e.g. Groq free tier: smaller requests
+        if cap:
+            self.limits.max_context_tokens = min(self.limits.max_context_tokens, int(cap))
         if max_steps:
             self.limits.max_steps = max_steps
         self.summarizer = summarizer

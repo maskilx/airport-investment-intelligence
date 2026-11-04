@@ -240,6 +240,165 @@ class GeminiBackend:
 
 
 # ------------------------------------------------------------------ Anthropic (kept from Phase 2; opt-in only, paid)
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+# Tool-capable chat models available outside Groq Enterprise (docs/model-provider-review.md). Others are refused.
+GROQ_MODELS = ("openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b")
+
+
+def _secs(v: str | None) -> float:
+    """Groq reset headers look like '7.66s', '1m2.5s' or '450ms'."""
+    if not v:
+        return 0.0
+    total = 0.0
+    for num, unit in re.findall(r"([\d.]+)(ms|h|m|s)", v):
+        total += float(num) * {"ms": 0.001, "s": 1, "m": 60, "h": 3600}[unit]
+    return total
+
+
+class GroqBackend:
+    """Groq (OpenAI-compatible chat completions) with function calling. Same agent loop, tools and validation as every
+    other backend. Separate key (macOS Keychain service 'airport-investment-intelligence-groq'), separate daily budget
+    and usage log, no fallback. Free-tier aware: a smaller per-request context cap (AIRPORT_GROQ_MAX_CONTEXT_TOKENS) and
+    proactive pacing from Groq's x-ratelimit headers, so requests wait for the token window instead of failing."""
+    name = "groq"
+
+    def __init__(self, model: str | None = None, api_key: str | None = None, max_requests: int | None = None,
+                 usage_log: str | Path | None = None, timeout: float = 120.0, sleep=time.sleep):
+        if os.environ.get("AIRPORT_ALLOW_GROQ") != "1":
+            raise ModelError("Groq calls are disabled (set AIRPORT_ALLOW_GROQ=1, e.g. ./scripts/mode.sh groq)")
+        from airport_data.config import get_paths, load_groq_key
+        self.api_key = api_key or load_groq_key()
+        if not self.api_key:
+            raise ModelError("no Groq API key: run ./scripts/configure-groq-key.sh (stores it in the macOS Keychain)")
+        self.model = model or os.environ.get("AIRPORT_GROQ_MODEL", "openai/gpt-oss-120b")
+        if self.model not in GROQ_MODELS:
+            raise ModelError(f"Groq model {self.model!r} is not one of the supported tool-calling models {list(GROQ_MODELS)}")
+        self.max_requests = int(max_requests or os.environ.get("AIRPORT_GROQ_MAX_REQUESTS", 60))
+        self.usage_log = Path(usage_log or os.environ.get("AIRPORT_GROQ_USAGE_LOG") or get_paths().app / "groq_usage.jsonl")
+        self.max_context_tokens = int(os.environ.get("AIRPORT_GROQ_MAX_CONTEXT_TOKENS", 8000))
+        self.max_completion_tokens = int(os.environ.get("AIRPORT_GROQ_MAX_COMPLETION_TOKENS", 1500))
+        self.timeout, self._sleep = timeout, sleep
+        self._lock = threading.Lock()
+        self.requests = self._requests_today()
+        self.rate: dict[str, float] = {}
+
+    def _requests_today(self) -> int:
+        day = time.strftime("%Y-%m-%d", time.gmtime())
+        try:
+            with open(self.usage_log) as f:
+                return sum(1 for line in f if f'"utc_day": "{day}"' in line and '"request": true' in line)
+        except FileNotFoundError:
+            return 0
+
+    @staticmethod
+    def to_messages(system: str, messages: list[dict]) -> list[dict]:
+        out = [{"role": "system", "content": system}]
+        for m in messages:
+            blocks = m["content"] if isinstance(m["content"], list) else [{"type": "text", "text": m["content"]}]
+            if m["role"] == "assistant":
+                text = "\n".join(b.get("text", "") for b in blocks if b["type"] == "text").strip()
+                calls = [{"id": b["id"], "type": "function",
+                          "function": {"name": b["name"], "arguments": json.dumps(b.get("input") or {})}}
+                         for b in blocks if b["type"] == "tool_use"]
+                msg: dict[str, Any] = {"role": "assistant", "content": text or None}
+                if calls:
+                    msg["tool_calls"] = calls
+                out.append(msg)
+                continue
+            texts = []
+            for b in blocks:
+                if b["type"] == "tool_result":
+                    c = b["content"] if isinstance(b["content"], str) else json.dumps(b["content"])
+                    out.append({"role": "tool", "tool_call_id": b["tool_use_id"], "content": c})
+                elif b["type"] == "text" and b.get("text"):
+                    texts.append(b["text"])
+            if texts:
+                out.append({"role": "user", "content": "\n".join(texts)})
+        return out
+
+    @staticmethod
+    def to_tools(tools: list[dict]) -> list[dict]:
+        # same schema translation as Gemini: oneOf / free-form objects become JSON strings, decoded by decode_args
+        return [{"type": "function", "function": {"name": t["name"], "description": t["description"],
+                                                  "parameters": gemini_schema(t["input_schema"])}} for t in tools]
+
+    def _pace(self, est_tokens: int) -> None:
+        """Proactive rate pacing (not a retry): if the last response said the token window cannot take this request,
+        wait for the window to reset (bounded)."""
+        rem, reset = self.rate.get("remaining_tokens"), self.rate.get("reset_tokens_s", 0.0)
+        if rem is not None and est_tokens + self.max_completion_tokens > rem and reset > 0:
+            self._sleep(min(reset + 0.5, 65.0))
+
+    def complete(self, system, messages, tools):
+        body = {"model": self.model, "messages": self.to_messages(system, messages), "tools": self.to_tools(tools),
+                "tool_choice": "auto", "parallel_tool_calls": False, "temperature": 0.2,
+                "max_completion_tokens": self.max_completion_tokens}
+        if self.model.startswith("openai/gpt-oss"):
+            body.update({"reasoning_effort": "medium", "include_reasoning": False})
+        data_bytes = json.dumps(body).encode()
+        self._pace(len(data_bytes) // 4)
+        with self._lock:
+            if self.requests >= self.max_requests:
+                raise ModelError(f"Groq daily request budget exhausted ({self.max_requests}); stopping (no fallback)")
+            self.requests += 1
+        req = urllib.request.Request(GROQ_URL, data=data_bytes, headers={
+            "Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}", "User-Agent": "airport-intel"})
+        t0 = time.time()
+        try:
+            import ssl
+            try:
+                import certifi
+                ctx = ssl.create_default_context(cafile=certifi.where())
+            except ImportError:
+                ctx = ssl.create_default_context()
+            with urllib.request.urlopen(req, timeout=self.timeout, context=ctx) as r:
+                hdr = {k.lower(): v for k, v in r.headers.items()}
+                data = json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:500].replace(self.api_key, "[key]")
+            self._log({"error": e.code, "detail": detail, "latency_s": round(time.time() - t0, 2)})
+            if e.code == 429:
+                raise ModelError(f"Groq rate limit reached (429). Stopping; no fallback. {detail}") from None
+            if e.code == 413:
+                raise ModelError(f"Groq request too large for this account's token-per-minute limit (413). Lower "
+                                 f"AIRPORT_GROQ_MAX_CONTEXT_TOKENS or use a paid tier. {detail}") from None
+            raise ModelError(f"Groq HTTP {e.code}: {detail}") from None
+        self.rate = {"remaining_tokens": float(hdr.get("x-ratelimit-remaining-tokens") or 0) if hdr.get(
+            "x-ratelimit-remaining-tokens") is not None else None,
+                     "reset_tokens_s": _secs(hdr.get("x-ratelimit-reset-tokens")),
+                     "limit_tokens": float(hdr.get("x-ratelimit-limit-tokens") or 0) or None,
+                     "limit_requests_day": float(hdr.get("x-ratelimit-limit-requests") or 0) or None}
+        dt = time.time() - t0
+        u = data.get("usage") or {}
+        usage = Usage(u.get("prompt_tokens", 0), u.get("completion_tokens", 0), 0, 1)
+        ch = (data.get("choices") or [{}])[0]
+        msg = ch.get("message") or {}
+        blocks = []
+        if msg.get("content"):
+            blocks.append({"type": "text", "text": msg["content"]})
+        for tc in msg.get("tool_calls") or []:
+            fn = tc.get("function") or {}
+            try:
+                args = decode_args(json.loads(fn.get("arguments") or "{}"))
+            except ValueError:
+                args = {"__invalid_arguments__": (fn.get("arguments") or "")[:500]}
+            blocks.append({"type": "tool_use", "id": tc.get("id") or "gq_" + uuid.uuid4().hex[:10],
+                           "name": fn.get("name", ""), "input": args})
+        self._log({"model": data.get("model", self.model), "finish": ch.get("finish_reason"),
+                   "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens, "latency_s": round(dt, 2),
+                   "tool_calls": [b["name"] for b in blocks if b["type"] == "tool_use"],
+                   "ratelimit": {k: v for k, v in self.rate.items() if v is not None}})
+        stop = "tool_use" if any(b["type"] == "tool_use" for b in blocks) else (
+            "max_tokens" if ch.get("finish_reason") == "length" else "end_turn")
+        return ModelResponse(blocks, stop, usage, data.get("model", self.model), dt)
+
+    def _log(self, rec: dict) -> None:
+        self.usage_log.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.usage_log, "a") as f:
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "utc_day": time.strftime("%Y-%m-%d", time.gmtime()),
+                                "request": True, **rec}) + "\n")
+
+
 class AnthropicBackend:
     """Anthropic Messages API. Paid provider: only constructed when explicitly requested AND AIRPORT_ALLOW_PAID=1."""
     name = "anthropic"
@@ -269,10 +428,12 @@ def backend_from_env() -> ModelBackend:
     kind = os.environ.get("AIRPORT_MODEL", "offline").strip().lower()
     if kind == "gemini":
         return GeminiBackend()
+    if kind == "groq":
+        return GroqBackend()
     if kind == "anthropic":
         return AnthropicBackend()
     if kind == "offline":
         from .offline import OfflineBackend
         return OfflineBackend()
     # an invalid configuration must fail loudly, not silently demo the offline planner as if it were the LLM
-    raise ModelError(f"unknown AIRPORT_MODEL={kind!r} (expected offline | gemini | anthropic)")
+    raise ModelError(f"unknown AIRPORT_MODEL={kind!r} (expected offline | gemini | groq | anthropic)")
