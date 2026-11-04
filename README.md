@@ -40,6 +40,10 @@ Mode is set in `.env`, which is copied from `.env.example` and git-ignored. Rest
 | **Offline** (default) | `AIRPORT_MODEL=offline` | none. A rule-based planner handles the assignment questions, comparisons, trends, screens and follow-ups. **No model API calls.** |
 | **Gemini** | `AIRPORT_MODEL=gemini`, `AIRPORT_ALLOW_GEMINI=1`, `GEMINI_API_KEY=…` | Free-tier Flash models only (`AIRPORT_GEMINI_MODEL`). At most `AIRPORT_GEMINI_MAX_REQUESTS` (default 25) per UTC day, counted in `data/app/gemini_usage.jsonl` across restarts. A 429 or an exhausted budget stops the turn: **no fallback**. |
 
+**One-question live check:** `.venv/bin/python tools/gemini_smoke.py` runs a single LAX vs SNA congestion question.
+It is capped at 5 model requests, counted in the same daily budget, with no retries. It refuses to call the API if
+the model is not free-tier Flash or if paid models are allowed.
+
 The header badge shows the active mode, and in Gemini mode the requests used today. `AIRPORT_WEB=0` disables web
 research, which is only offered to LLM planners.
 

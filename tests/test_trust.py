@@ -470,3 +470,37 @@ def test_chart_labels_repeated_airport_by_period():
     ch = build_chart({"type": "bar", "findings": ["F1", "F2"]}, st)
     cats = [r["category"] for r in ch["vega_lite"]["data"]["values"]]
     assert len(set(cats)) == 2 and all("SFO" in c for c in cats)
+
+
+def test_gemini_smoke_script_never_exceeds_five_requests(monkeypatch, tmp_path):
+    """The live smoke test must stop at 5 generateContent calls even if the model keeps calling tools (fake endpoint)."""
+    import importlib.util
+    import io
+    import urllib.request
+    calls = []
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=None, context=None):
+        calls.append(req.full_url)
+        body = {"modelVersion": "gemini-3.8-flash", "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 2},
+                "candidates": [{"finishReason": "STOP", "content": {"parts": [
+                    {"functionCall": {"name": "describe_catalog", "args": {}}}]}}]}
+        return Resp(json.dumps(body).encode())
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    for k, v in {"AIRPORT_MODEL": "gemini", "AIRPORT_ALLOW_GEMINI": "1", "GEMINI_API_KEY": "test-not-a-key",
+                 "AIRPORT_GEMINI_USAGE_LOG": str(tmp_path / "u.jsonl"), "AIRPORT_GEMINI_MODEL": "gemini-3.8-flash"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("AIRPORT_ALLOW_PAID", raising=False)
+    spec = importlib.util.spec_from_file_location("gemini_smoke", str(get_paths().root.parent / "tools" / "gemini_smoke.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod, "ROOT", tmp_path)
+    mod.main()
+    assert len(calls) == 5                                                     # hard ceiling held
+    assert sum(1 for _ in open(tmp_path / "u.jsonl")) == 5                    # every request counted persistently

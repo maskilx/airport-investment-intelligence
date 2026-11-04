@@ -32,3 +32,4 @@ data/app/
 eval/runs/**/session.pkl*
 eval/runs/**/agent_stdout.txt
 *.pkl
+eval/runs/gemini_smoke/
