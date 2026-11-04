@@ -25,7 +25,7 @@ Labels used below: **[measured]** = I queried it in our DB today · **[cited]** 
 - Numbers that **reproduce** and carry their **lineage** (source, period, vintage).
 - Visible **epistemics**: the system distinguishes observed / calculated / estimated / forecast / hypothesis, and says "cannot establish" when it can't.
 - **Definition-awareness**: asks or states which definition of "long-haul" and "LA" it used.
-- A scoring model whose weights are **explicit, configurable, sensitivity-tested**, with rank *intervals* rather than false precision.
+- A scoring model whose weights are **explicit, configurable, tested against named weight scenarios**, with ties declared instead of false precision.
 - Clear **LLM/deterministic boundary**, with a mechanism that *enforces* it (not just a prompt).
 - Generality demonstrated live: the same machinery answers a question nobody pre-scripted.
 
