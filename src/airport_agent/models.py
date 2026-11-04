@@ -128,9 +128,10 @@ class GeminiBackend:
                  usage_log: str | Path | None = None, timeout: float = 120.0):
         if os.environ.get("AIRPORT_ALLOW_GEMINI") != "1":
             raise ModelError("Gemini calls are disabled (set AIRPORT_ALLOW_GEMINI=1 to allow real API calls)")
-        self.api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        from airport_data.config import load_gemini_key
+        self.api_key = api_key or load_gemini_key()
         if not self.api_key:
-            raise ModelError("no GEMINI_API_KEY in the environment")
+            raise ModelError("no Gemini API key: run ./scripts/configure-gemini-key.sh (stores it in the macOS Keychain)")
         self.model = model or os.environ.get("AIRPORT_GEMINI_MODEL", "gemini-3.8-flash")
         if not FREE_TIER_MODEL.match(self.model) and os.environ.get("AIRPORT_ALLOW_PAID") != "1":
             raise ModelError(f"model {self.model!r} is not a free-tier Flash model; set AIRPORT_ALLOW_PAID=1 to allow it")

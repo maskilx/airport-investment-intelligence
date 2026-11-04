@@ -291,3 +291,11 @@ pre.spec { background: var(--paper); border: 1px solid var(--rule); padding: 10p
   .answer .a-head, .answer .body, .section, .a-foot { padding-left: 14px; padding-right: 14px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* assessment: objective -> criteria -> judgment */
+.claims li.assess { align-items: start; }
+.claims li.assess p { margin: 4px 0; }
+.ev.crit { margin: 6px 0; }
+.ev.crit td { vertical-align: top; }
+.tag.assessment { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); border: 1px solid currentColor; }
+.tag[title] { cursor: help; }

@@ -22,7 +22,7 @@ from .claims import expand as expand_claim
 from .claims import validate_answer as validate_claims
 from .evidence import EvidenceStore, Finding, InvalidSpec
 
-CLAIM_KINDS = ("fact", "comparison", "ranking", "inference", "hypothesis", "financial", "external")
+CLAIM_KINDS = ("fact", "comparison", "ranking", "inference", "hypothesis", "assessment", "financial", "external")
 
 PH = re.compile(r"\{(F\d+)(?:\.(label|name|period|class|source|value|definition))?\}")
 WPH = re.compile(r"\{(W\d+)\}")                       # external web evidence: renders as a link, carries no value
@@ -137,7 +137,12 @@ def _strip_allowed(text: str, known: set[str] | None = None) -> str:
 
 
 def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] | None = None,
-             web: dict[str, dict] | None = None) -> list[str]:
+             web: dict[str, dict] | None = None, question: str | None = None) -> list[str]:
+    return _validate(answer, store, known_codes, web, question)
+
+
+def _validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] | None = None,
+             web: dict[str, dict] | None = None, question: str | None = None) -> list[str]:
     errs = []
     if not isinstance(answer, dict) or not answer.get("headline") or "body" not in answer:
         return ["answer must have 'headline' and 'body'"]
@@ -147,7 +152,14 @@ def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str]
              **{f"limitations[{i}]": a for i, a in enumerate(answer.get("limitations", []))},
              **{f"charts[{i}].title": (c or {}).get("title", "") for i, c in enumerate(answer.get("charts", []) or [])},
              **{f"claims[{i}].alternatives[{k}]": a for i, c in enumerate(answer.get("claims", []))
-                for k, a in enumerate(c.get("alternatives") or []) if isinstance(a, str)}}
+                for k, a in enumerate(c.get("alternatives") or []) if isinstance(a, str)},
+             **{f"claims[{i}].{key}": c.get(key) or "" for i, c in enumerate(answer.get("claims", []))
+                for key in ("objective", "judgment") if isinstance(c.get(key), str)},
+             **{f"claims[{i}].{key}[{k}]": t for i, c in enumerate(answer.get("claims", []))
+                for key in ("conditional_on", "would_change") for k, t in enumerate(c.get(key) or []) if isinstance(t, str)},
+             **{f"claims[{i}].criteria[{k}]": f"{cr.get('name', '')} {cr.get('why', '')}"
+                for i, c in enumerate(answer.get("claims", [])) for k, cr in enumerate(c.get("criteria") or [])
+                if isinstance(cr, dict)}}
     for where, t in texts.items():
         for wid in WPH.findall(t or ""):
             if wid not in (web or {}):
@@ -202,6 +214,8 @@ def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str]
             if PH.search(c.get("text", "")):
                 errs.append(f"claims[{i}]: external claims must not cite internal findings; use a fact/inference claim")
             continue
+        if kind == "assessment":
+            continue                                   # checked in claims._validate_assessment
         sup = c.get("support") or []
         if kind in ("fact", "inference") and not sup:
             errs.append(f"claims[{i}]: a {kind} must cite at least one finding in 'support'")
@@ -210,7 +224,7 @@ def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str]
         for fid in sup:
             if fid not in store:
                 errs.append(f"claims[{i}]: support {fid} is not a finding from this session")
-    errs += [e for e in validate_claims(answer, store) if e not in errs]      # semantic layer (claims.py)
+    errs += [e for e in validate_claims(answer, store, question) if e not in errs]      # semantic layer (claims.py)
     return errs
 
 
@@ -229,6 +243,7 @@ def claim_label(c: dict, store: EvidenceStore) -> str:
         return "Measured + calculated" if cls <= {"observed", "calculated"} else "Mixed evidence"
     return {"comparison": "Comparison (computed)", "ranking": "Ranking (computed)", "inference": "Interpretation",
             "hypothesis": "Hypothesis (not established by the data)", "external": "External source",
+            "assessment": "Assessment (judgment on cited evidence)",
             "financial": "Financial"}.get(kind, str(kind))
 
 
@@ -342,7 +357,15 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
                   "claims": [{"kind": c["kind"], "label": claim_label(c, store), "text": rm(c["text"]),
                               "support": c.get("support") or [],
                               **({"source": c["source"], "quote": INVISIBLE.sub("", c["quote"]).strip()}
-                                 if c["kind"] == "external" else {})}
+                                 if c["kind"] == "external" else {}),
+                              **({"assessment": {
+                                  "objective": c.get("objective", ""), "abstain": bool(c.get("abstain")),
+                                  "judgment": c.get("judgment", ""), "conditional_on": c.get("conditional_on") or [],
+                                  "would_change": c.get("would_change") or [],
+                                  "criteria": [{"name": cr.get("name", ""), "why": cr.get("why", ""),
+                                                "favors": cr.get("favors", ""), "findings": cr.get("findings") or []}
+                                               for cr in c.get("criteria") or [] if isinstance(cr, dict)]}}
+                                 if c["kind"] == "assessment" else {})}
                              for c in claims],
                   "external": [{"id": w, "title": wtitle(w), "url": web[w]["url"],
                                 "domain": safe_label(web[w]["domain"] or "", "web"), "retrieved_at": web[w]["retrieved_at"]}

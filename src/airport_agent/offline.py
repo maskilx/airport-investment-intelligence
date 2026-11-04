@@ -13,6 +13,8 @@ import re
 import uuid
 from typing import Any
 
+from airport_analytics.claims import is_assessment_question
+
 from .models import ModelResponse, Usage
 
 LABEL = "Offline demo planner (rule-based, no LLM)"
@@ -194,7 +196,7 @@ class OfflineBackend:
                 airports = items[ordinals[nth.group(1).lower()]:][:1]
         if not airports and not group:
             if focus and (REFERENCE.search(q) or not terms):
-                airports = focus[:2] if re.search(r"\b(both|compare|them|those|these)\b", q, re.I) else focus[:1]
+                airports = focus[:2] if re.search(r"\b(both|compare|them|their|those|these)\b", q, re.I) else focus[:1]
             elif groups and intent == "screen":
                 group = json.loads(groups[0])
         elif not ordinal_ref and REFERENCE.search(q) and focus and re.search(r"\b(compare|versus|vs|against|with)\b", q, re.I):
@@ -210,6 +212,12 @@ class OfflineBackend:
             return _text("Which airport or region should I analyze? You can use a code (SFO), a city, or a region.")
 
         analyses = [(u, r) for u, r in done if u["name"] == "run_analysis"]
+        assess = is_assessment_question(q) and len(airports) >= 2 and not group
+        if assess and intent not in ("screen", "congestion") and not analyses:
+            # a judgment needs an objective: different objectives use different criteria and can flip the answer
+            return _text(f"Better for what? For {', '.join(airports)} I can assess passenger growth opportunity "
+                         "(investment / expansion screen) or airside congestion (delay, taxi-out, peak-hour pressure). "
+                         "Which objective should the assessment use?")
         if not analyses:
             lh = int(thr.group(1)) if thr else (int(bound[-1][1]) if bound else None)
             specs = self._specs(intent, metrics, airports, group, lh)
@@ -282,6 +290,8 @@ class OfflineBackend:
             return {"headline": "This could not be established from the data",
                     "body": "The analyses needed for this question returned errors; see the limitations below.",
                     "limitations": lim}
+        if is_assessment_question(q) and len(airports) >= 2 and not region and intent in ("screen", "congestion"):
+            return self._compose_assessment(intent, ok, airports, lim)
         if intent == "screen":
             return self._compose_screen(ok[0][1], region, lim)
         cells = []                                # (airport, metric_key, fid)
@@ -366,6 +376,87 @@ class OfflineBackend:
                                       "terminal size"]})
             ans["limitations"].append("Unmet demand is not directly measurable here (no fares, spill or booking data).")
         return ans
+
+    @staticmethod
+    def _compose_assessment(intent: str, ok: list, airports: list[str], lim: list[str]) -> dict:
+        """Objective -> criteria tied to findings -> conditional judgment. Which option each criterion favours is
+        computed (and re-checked by claims.py); the planner never invents values, weights or support."""
+        from airport_analytics.claims import SIMILAR_REL_TOL
+
+        def winner(pairs, higher_better=True):          # pairs [(airport, fid, value)] -> favoured airport or neither
+            num = [p for p in pairs if isinstance(p[2], (int, float))]
+            if len(num) < 2:
+                return "neither"
+            num.sort(key=lambda p: -p[2] if higher_better else p[2])
+            a, b = num[0][2], num[1][2]
+            return "neither" if abs(a - b) <= SIMILAR_REL_TOL * max(abs(a), abs(b), 1e-12) else num[0][0]
+        crits, fids_all = [], []
+        if intent == "screen":
+            r = ok[0][1]
+            rows = r.get("table", [])
+            objective = ("Passenger growth opportunity (stage A screen): which airport combines stronger forecast growth, "
+                         "realized growth and market income. Terminal need and project returns are not assessed.")
+            names = {"incremental_enplanements": "Forecast passenger increase (FAA TAF)",
+                     "realized_growth": "Realized passenger growth (T-100)", "market_income": "Market income (BEA)"}
+            for comp, nm in names.items():
+                pairs = [(row["airport"], row["components"][comp]["points_id"], row["components"][comp]["points"]) for row in rows]
+                crits.append({"name": nm, "findings": [p[1] for p in pairs], "favors": winner(pairs),
+                              "direction": "higher_is_better",
+                              "why": "points contributed under the documented screen weighting"})
+            pairs = [(row["airport"], row["score"]["id"], row["score"]["value"]) for row in rows]
+            crits.append({"name": "Overall growth opportunity score", "findings": [p[1] for p in pairs],
+                          "favors": winner(pairs), "direction": "higher_is_better",
+                          "why": "sum of the weighted factor points"})
+            top = rows[0]["airport"] if rows else None
+            stable = bool(rows) and all(v == 1 for v in rows[0].get("scenario_ranks", {}).values())
+            close = len(rows) > 1 and rows[1].get("tied_with_previous")
+            unscored = [x["airport"] for x in (r.get("gate") or {}).get("below_scale", [])] + \
+                [x["airport"] for x in r.get("not_scored", [])]
+            if unscored:
+                lim.append("Not scored (below the passenger-scale gate or missing an input): " + ", ".join(unscored) + ".")
+            abstain = bool(close) or len(rows) < 2
+            judgment = "" if abstain else (
+                f"{top} is the stronger passenger-growth opportunity of the airports compared"
+                + (", and it stays first under every weighting scenario." if stable
+                   else " under the base weighting, but the order changes under other weightings, so treat it as conditional."))
+            cond = ["the FAA forecast growth is realized",
+                    "no binding airfield, regulatory or terminal constraint, which this screen does not establish"]
+            change = ["dated terminal and airfield capacity records with primary evidence",
+                      "committed or announced terminal projects at either airport",
+                      "a different priority between forecast growth, momentum and market income"]
+        else:
+            r = ok[0][1]
+            rows = r.get("table", [])
+            objective = ("Lower airside congestion: which airport operates with less delay and less peak-hour pressure "
+                         "(airside indicators; passenger-terminal crowding is not measured).")
+            keys = [("dep_delay15_rate", "Departure delay rate"), ("avg_taxi_out_min", "Average taxi-out time"),
+                    ("peak_hour_ops_p95", "Scheduled peak-hour operations"), ("nas_delay_min_per_arrival", "NAS delay per arrival")]
+            for k, nm in keys:
+                pairs = [(row.get("airport"), row[k]["id"], row[k].get("value")) for row in rows if isinstance(row.get(k), dict)]
+                if len(pairs) >= 2 and all(isinstance(p[2], (int, float)) for p in pairs):
+                    crits.append({"name": nm, "findings": [p[1] for p in pairs], "favors": winner(pairs, False),
+                                  "direction": "lower_is_better", "why": "lower means less airside pressure"})
+            votes = [c_["favors"] for c_ in crits if c_["favors"] != "neither"]
+            best = max(set(votes), key=votes.count) if votes else None
+            abstain = len(crits) < 2 or not best or votes.count(best) <= len(crits) / 2
+            judgment = "" if abstain else f"{best} shows less airside congestion on most of the indicators compared."
+            cond = ["airside indicators are the relevant notion of congestion (terminal crowding is not measured)",
+                    "On-Time coverage (reporting carriers, domestic flights) is representative at both airports"]
+            change = ["terminal throughput or security-wait data", "the same indicators for international traffic",
+                      "a longer or seasonal comparison window"]
+        fids_all = [i for c_ in crits for i in c_["findings"]]
+        claim = {"kind": "assessment", "objective": objective, "criteria": crits, "judgment": judgment,
+                 "abstain": abstain, "conditional_on": cond, "would_change": change}
+        head = ("Assessment: passenger growth opportunity, " if intent == "screen" else "Assessment: airside congestion, ") \
+            + " and ".join(airports)
+        return {"headline": head,
+                "body": "The objective, the criteria with their evidence, and the judgment follow. Each criterion cites "
+                        "the findings it rests on; which airport it favours is computed from those values.",
+                "claims": [claim],
+                "assumptions": ["The objective above is the interpretation used; a different objective would use "
+                                "different criteria."],
+                "limitations": lim,
+                "charts": [{"type": "bar", "title": "", "findings": crits[-1]["findings"]}] if crits else []}
 
     @staticmethod
     def _compose_screen(r: dict, region: str, lim: list[str]) -> dict:

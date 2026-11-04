@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "workspace",
-      "runtimeExecutable": ".venv/bin/python",
-      "runtimeArgs": ["-m", "airport_app", "--port", "8765"],
+      "runtimeExecutable": "./scripts/start.sh",
+      "runtimeArgs": ["--port", "8765"],
       "port": 8765
     }
   ]

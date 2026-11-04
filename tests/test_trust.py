@@ -501,6 +501,79 @@ def test_gemini_smoke_script_never_exceeds_five_requests(monkeypatch, tmp_path):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     monkeypatch.setattr(mod, "ROOT", tmp_path)
+    monkeypatch.setattr(mod, "model_in_catalog", lambda m, k: (True, "fake catalog"))
+    monkeypatch.setenv("AIRPORT_GEMINI_SMOKE_COUNTER", str(tmp_path / "data" / "app" / "gemini_smoke_counter.json"))
     mod.main()
     assert len(calls) == 5                                                     # hard ceiling held
     assert sum(1 for _ in open(tmp_path / "u.jsonl")) == 5                    # every request counted persistently
+    assert json.loads((tmp_path / "data" / "app" / "gemini_smoke_counter.json").read_text())["used"] == 5
+    calls.clear()
+    assert mod.main() == 2 and not calls                                       # a second run makes no request at all
+
+
+# ---------------------------------------------------------------- general assessment capability
+def test_assessment_intent_detection():
+    from airport_analytics.claims import is_assessment_question as q
+    for s in ("Which airport is a better investment opportunity?", "Which airport should we prioritize?",
+              "Which airport is better suited for cargo?", "What is your assessment of these alternatives?",
+              "Which is more attractive for expansion, BOS or PVD?"):
+        assert q(s), s
+    for s in ("What is the long-haul share at ANC?", "How many passengers used SFO?", "What was the average delay at LAX?",
+              "Compare LAX and SNA congestion."):
+        assert not q(s), s
+
+
+def test_factual_questions_never_produce_assessments():
+    from airport_agent.offline import OfflineBackend
+    from airport_agent.runtime import Agent
+    for question in ("What is the percentage of long haul flights out of Anchorage airport?",
+                     "Compare LA and Santa Ana airport congestion levels."):
+        r = Agent(OfflineBackend()).ask(question)
+        assert r.kind == "answer" and not any(c["kind"] == "assessment" for c in r.structured["claims"])
+
+
+def test_assessment_claim_rejected_for_a_factual_question(S, ev):
+    from airport_analytics.render import validate
+    t = ev["taxi"]
+    a = {"headline": "Taxi-out", "body": "x", "claims": [{
+        "kind": "assessment", "objective": "Lower airside congestion",
+        "criteria": [{"name": "Taxi-out", "findings": [t["LAX"], t["SNA"]], "favors": "SNA", "direction": "lower_is_better"},
+                     {"name": "Delay", "findings": [ev["delay"]["LAX"], ev["delay"]["SNA"]], "favors": "neither"}],
+        "judgment": "SNA shows less airside congestion.", "conditional_on": ["airside view only"],
+        "would_change": ["terminal data"]}]}
+    assert any("only for questions that ask for a judgment" in e for e in validate(a, S.ctx.store, question="What is the taxi-out time at LAX and SNA?"))
+    assert not validate(a, S.ctx.store, question="Which airport is less congested and better to prioritize, LAX or SNA?")
+
+
+def test_recommendations_need_traceable_consistent_evidence(S, ev):
+    from airport_analytics.render import validate
+    t, d = ev["taxi"], ev["delay"]
+    Q = "Which airport should we prioritize, LAX or SNA?"
+    base = {"kind": "assessment", "objective": "Lower airside congestion", "conditional_on": ["airside view only"],
+            "would_change": ["terminal data"]}
+    good = [{"name": "Taxi-out", "findings": [t["LAX"], t["SNA"]], "favors": "SNA", "direction": "lower_is_better"},
+            {"name": "Delay", "findings": [d["LAX"], d["SNA"]], "favors": "neither", "direction": "lower_is_better"}]
+    ok = lambda **kw: validate({"headline": "h", "body": "x", "claims": [{**base, **kw}]}, S.ctx.store, question=Q)
+    assert not ok(criteria=good, judgment="SNA shows less airside congestion.")
+    assert ok(criteria=[{"name": "Reputation", "findings": []}, good[0]], judgment="SNA is better.")          # no evidence
+    assert ok(criteria=[{**good[0], "favors": "LAX"}, good[1]], judgment="LAX is better.")                     # wrong direction
+    assert ok(criteria=[good[0], {**good[1], "favors": "LAX"}], judgment="LAX is better.")                     # inside 5% band
+    assert ok(criteria=good, judgment="LAX is better.")                                                         # no criterion favours LAX
+    assert ok(criteria=good, judgment="SNA is better with a heavier weight on taxi-out.")                      # invented weights
+    assert ok(criteria=good, judgment="SNA is guaranteed to be better.")                                       # certainty
+    assert ok(criteria=good, judgment="SNA is the more profitable investment.")                                # financial
+    assert ok(criteria=[good[0]], judgment="SNA.")                                                             # single criterion
+    assert not ok(criteria=[good[1]], abstain=True, judgment="")                                               # abstention allowed
+
+
+def test_offline_assessment_uses_objective_specific_criteria_or_asks():
+    from airport_agent.offline import OfflineBackend
+    from airport_agent.runtime import Agent
+    r = Agent(OfflineBackend()).ask("Which is the better investment opportunity, BOS or PVD?")
+    a = next(c for c in r.structured["claims"] if c["kind"] == "assessment")["assessment"]
+    assert "growth" in a["objective"].lower() and len(a["criteria"]) >= 3 and a["conditional_on"] and a["would_change"]
+    r = Agent(OfflineBackend()).ask("Which airport is less congested and better to prioritize operationally, LAX or SNA?")
+    a = next(c for c in r.structured["claims"] if c["kind"] == "assessment")["assessment"]
+    assert "congestion" in a["objective"].lower() and not any("growth" in c["name"].lower() for c in a["criteria"])
+    r = Agent(OfflineBackend()).ask("Which is better, LAX or SNA?")
+    assert r.kind == "clarification" and "Better for what" in r.markdown

@@ -64,6 +64,30 @@ def load_env(path: str | os.PathLike | None = None) -> list[str]:
     return set_
 
 
+KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT = "airport-investment-intelligence", "GEMINI_API_KEY"
+
+
+def keychain_secret() -> str | None:
+    """Gemini key from the macOS Keychain (written by scripts/configure-gemini-key.sh). The secret comes back on the
+    `security` tool's stdout; it is never part of a command line or a log."""
+    import subprocess
+    import sys
+    if sys.platform != "darwin":
+        return None
+    try:
+        r = subprocess.run(["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w"],
+                           capture_output=True, text=True, timeout=10)
+    except Exception:
+        return None
+    v = r.stdout.strip()
+    return v if r.returncode == 0 and v else None
+
+
+def load_gemini_key() -> str | None:
+    """Environment / .env first, then the Keychain. Only called when Gemini mode is configured."""
+    return os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or keychain_secret()
+
+
 def get_paths(root: str | os.PathLike | None = None) -> Paths:
     root = root or os.environ.get("AIRPORT_DATA_DIR") or (REPO_ROOT / "data")
     return Paths(Path(root))

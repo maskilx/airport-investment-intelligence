@@ -10,42 +10,45 @@ through a structured conversation memory. Web research is optional and kept sepa
 
 ## Quick start
 
-**This machine (data and database already present):**
-```bash
-./scripts/start.sh            # then open http://127.0.0.1:8765
-```
-The startup banner prints the mode (OFFLINE or GEMINI), the database build and the URL. It refuses to start with a
-clear message if the database is missing or the model configuration is invalid. It never silently falls back.
+Permanent location on this Mac: **`~/Downloads/airport-investment-intelligence`**. Data and database are local here.
 
-**New machine (fresh clone):**
 ```bash
-./scripts/bootstrap.sh        # .venv + deps, .env from .env.example, public-data download (~500 MB), DB build
-./scripts/start.sh
+~/Downloads/airport-investment-intelligence/scripts/start.sh             # open http://127.0.0.1:8765
+~/Downloads/airport-investment-intelligence/scripts/start.sh --restart   # after changing mode or key
+~/Downloads/airport-investment-intelligence/scripts/start.sh --stop
 ```
-The aviation data is **not in Git**. `data/raw/`, `data/db/` and `data/app/` are git-ignored.
-`bootstrap.sh` re-downloads every source from its public publisher (BTS, FAA, Census, BEA, OurAirports) using the plan in
-`config/ingest.toml`, checksums each file into an immutable vintage, and builds `data/db/airport.duckdb`. Curated
-tables (`data/curated/`, `data/reference/`) and the fetch and validation audit log (`data/manifest/`) are small and
-tracked. A fresh download gets the publishers' *current* files, so numbers can differ from this machine's vintages;
-every answer shows its periods and vintages.
+The script works from any directory. The banner prints the mode (OFFLINE or GEMINI), the database build and the URL.
+If the app is already running, it prints where instead of starting a second copy. It refuses to start, with a clear
+reason, if the database is missing or the Gemini configuration is invalid. It never silently falls back to offline.
+
+**New machine (fresh clone):** `./scripts/bootstrap.sh` creates `.venv`, installs dependencies, creates `.env` from
+`.env.example`, downloads the public data (~500 MB) and builds the database. Then run `./scripts/start.sh`.
+The aviation data is **not in Git**. `data/raw/`, `data/db/` and `data/app/` are git-ignored and recreated from the
+public publishers using `config/ingest.toml`. A fresh download gets the publishers' current files, so numbers can
+differ; every answer shows its periods and vintages.
 
 Tests (offline, no model calls): `.venv/bin/python -m pytest`. Seed-archive tests skip when `data/raw/` is absent.
 
-### Offline vs Gemini mode
+### Offline and Gemini mode
 
-Mode is set in `.env`, which is copied from `.env.example` and git-ignored. Restart the app after changing it.
+```bash
+./scripts/configure-gemini-key.sh    # set or replace the key: hidden input, stored in the macOS Keychain
+./scripts/mode.sh gemini             # or: ./scripts/mode.sh offline   |   ./scripts/mode.sh status
+./scripts/start.sh --restart
+```
+* **Offline** (default): a rule-based planner. **No model API calls.**
+* **Gemini**: the key is read with hidden input and checked against Google's model catalog (a metadata call, not a
+  generation request). It is stored in the **macOS Keychain** (service `airport-investment-intelligence`) and never in
+  a file, a command line or a log. If the Keychain is unavailable it goes in `.env` with `chmod 600`; `.env` is
+  git-ignored. The helper selects a verified free-tier Flash model.
+  * Requests are capped by `AIRPORT_GEMINI_MAX_REQUESTS` (default 25 per UTC day), counted in `data/app/gemini_usage.jsonl` across restarts.
+  * A 429 or an exhausted budget stops the turn: **no fallback**. Paid models need `AIRPORT_ALLOW_PAID=1` (do not set it).
+* `./scripts/configure-gemini-key.sh --remove` deletes the key and returns to offline.
 
-| Mode | `.env` | Cost |
-|---|---|---|
-| **Offline** (default) | `AIRPORT_MODEL=offline` | none. A rule-based planner handles the assignment questions, comparisons, trends, screens and follow-ups. **No model API calls.** |
-| **Gemini** | `AIRPORT_MODEL=gemini`, `AIRPORT_ALLOW_GEMINI=1`, `GEMINI_API_KEY=…` | Free-tier Flash models only (`AIRPORT_GEMINI_MODEL`). At most `AIRPORT_GEMINI_MAX_REQUESTS` (default 25) per UTC day, counted in `data/app/gemini_usage.jsonl` across restarts. A 429 or an exhausted budget stops the turn: **no fallback**. |
+The header badge shows the active mode, and in Gemini mode the requests used today.
 
-**One-question live check:** `.venv/bin/python tools/gemini_smoke.py` runs a single LAX vs SNA congestion question.
-It is capped at 5 model requests, counted in the same daily budget, with no retries. It refuses to call the API if
-the model is not free-tier Flash or if paid models are allowed.
-
-The header badge shows the active mode, and in Gemini mode the requests used today. `AIRPORT_WEB=0` disables web
-research, which is only offered to LLM planners.
+**One-question live check:** `.venv/bin/python tools/gemini_smoke.py` runs one LAX vs SNA congestion question. It
+allows at most 5 model requests, tracked in a persistent smoke-test counter that is separate from the daily budget.
 
 ## Data foundation
 

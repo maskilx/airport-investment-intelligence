@@ -250,11 +250,17 @@ function renderAnswer(turnEl, e) {
       for (const c of e.charts) sec.lastChild.append(chartEl(c));
     }
     if (s.claims?.length) {
-      card.append(h("div", { class: "section" }, h("h4", {}, "Findings and reasoning"), h("ul", { class: "claims" },
-        s.claims.map((c) => h("li", {}, h("span", { class: `tag ${c.kind}`, title: "how this statement is established" }, c.label || (c.kind === "external" ? "web" : c.kind)),
-          h("span", {}, h("span", { html: rich(c.text).replace(/^<p>|<\/p>$/g, "") }),
-            c.kind === "external" ? h("span", {}, " — ", h("q", { class: "quote" }, c.quote), " ", h("button", { class: "chip ext", "data-fid": c.source }, c.source)) : null,
-            c.support?.length ? h("span", { class: "support" }, "[", c.support.map((id) => h("button", { "data-fid": id }, id)), "]") : null))))));
+      // separate what the data shows from what is interpreted from it (and from outside sources)
+      const groups = [
+        ["Evidence: measured and calculated", ["fact", "comparison", "ranking"]],
+        ["Interpretation and judgment", ["assessment", "inference", "hypothesis"]],
+        ["External sources (web)", ["external"]],
+      ];
+      for (const [title, kinds] of groups) {
+        const cs = s.claims.filter((c) => kinds.includes(c.kind));
+        if (!cs.length) continue;
+        card.append(h("div", { class: "section" }, h("h4", {}, title), h("ul", { class: "claims" }, cs.map(claimEl))));
+      }
     }
     if (s.external?.length) {
       card.append(h("div", { class: "section" }, h("h4", {}, "External sources — web, not part of the internal datasets"),
@@ -293,6 +299,39 @@ function renderAnswer(turnEl, e) {
     h("button", { onclick: () => navigator.clipboard?.writeText(e.markdown || "") }, "copy markdown"));
   card.append(foot);
   turnEl.append(card);
+}
+
+const TAG_HELP = {
+  Measured: "Read directly from a published dataset (e.g. BTS, FAA), summed over the stated period.",
+  Calculated: "Computed by the analytics engine from measured data (a ratio, change or score); the formula is in Methodology.",
+  "Forecast (FAA)": "An official FAA Terminal Area Forecast value: a projection, not an observation.",
+  "Comparison (computed)": "The direction (higher / lower / similar) is checked by code against the cited values.",
+  "Ranking (computed)": "Rank, set size and robustness are written by code from the rank/screen result.",
+  Interpretation: "A reading of the cited findings; it adds no new numbers.",
+  "Hypothesis (not established by the data)": "A possible explanation with competing alternatives; the data cannot confirm it.",
+  "Assessment (judgment on cited evidence)": "A judgment for a stated objective. Each criterion cites findings, and which option it favours is checked by code.",
+  "External source": "From a fetched web page, quoted verbatim; not part of the internal datasets.",
+};
+const fidChips = (ids) => h("span", { class: "support" }, "[", ids.map((id) => h("button", { "data-fid": id }, id)), "]");
+
+function claimEl(c) {
+  const label = c.label || c.kind;
+  const tag = h("span", { class: `tag ${c.kind}`, title: TAG_HELP[label] || "how this statement is established" }, label);
+  if (c.kind === "assessment" && c.assessment) {
+    const a = c.assessment;
+    const fav = (x) => (!x || /^(none|neither|unclear|mixed)$/i.test(x) ? "no clear advantage" : x);
+    return h("li", { class: "assess" }, tag, h("div", {},
+      h("p", {}, h("strong", {}, "Objective: "), a.objective),
+      h("table", { class: "ev crit" }, h("thead", {}, h("tr", {}, ["Criterion", "Favours", "Evidence", "Why it matters"].map((x) => h("th", {}, x)))),
+        h("tbody", {}, a.criteria.map((k) => h("tr", {}, h("td", {}, k.name), h("td", { class: "v" }, fav(k.favors)),
+          h("td", {}, fidChips(k.findings)), h("td", {}, k.why || ""))))),
+      h("p", {}, h("strong", {}, "Judgment: "), a.abstain ? "No definitive recommendation: the evidence is insufficient." : a.judgment),
+      a.conditional_on?.length ? h("p", {}, h("strong", {}, "Holds only if: "), a.conditional_on.join("; ")) : null,
+      a.would_change?.length ? h("p", {}, h("strong", {}, "Would change with: "), a.would_change.join("; ")) : null));
+  }
+  return h("li", {}, tag, h("span", {}, h("span", { html: rich(c.text).replace(/^<p>|<\/p>$/g, "") }),
+    c.kind === "external" ? h("span", {}, " — ", h("q", { class: "quote" }, c.quote), " ", h("button", { class: "chip ext", "data-fid": c.source }, c.source)) : null,
+    c.support?.length ? fidChips(c.support) : null));
 }
 
 function chartTheme() {

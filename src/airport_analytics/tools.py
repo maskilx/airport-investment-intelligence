@@ -236,7 +236,7 @@ def _compose(s: Session, a: dict) -> Any:
     ans = a.get("answer") or a
     codes = {r["code"] for r in s.ctx.resolver.rows if r["code"]}
     web = getattr(s, "web", None)
-    errs = validate(ans, s.ctx.store, codes, web)
+    errs = validate(ans, s.ctx.store, codes, web, getattr(s, "question", None))
     if errs:
         return {"error": "grounding_validation_failed", "errors": errs,
                 "hint": "Put every number in a {F#} placeholder; cite findings in claims[].support; label hypotheses; "
@@ -326,7 +326,18 @@ _WINDOW = {"type": "object", "description": "one of: {t12:true[,offset_months]},
 _ANSWER = {"type": "object", "properties": {
     "headline": {"type": "string"}, "body": {"type": "string"},
     "claims": {"type": "array", "items": {"type": "object", "properties": {
-        "kind": {"enum": ["fact", "comparison", "ranking", "inference", "hypothesis", "financial", "external"]},
+        "kind": {"enum": ["fact", "comparison", "ranking", "inference", "hypothesis", "assessment", "financial",
+                          "external"]},
+        "objective": {"type": "string", "description": "assessment: the objective evaluated (your stated interpretation)"},
+        "criteria": {"type": "array", "description": "assessment: criteria, each tied to findings",
+                     "items": {"type": "object", "properties": {
+                         "name": {"type": "string"}, "why": {"type": "string"},
+                         "findings": {"type": "array", "items": {"type": "string"}},
+                         "favors": {"type": "string", "description": "airport code it favours, or neither"},
+                         "direction": {"enum": ["higher_is_better", "lower_is_better"]}}, "required": ["name", "findings"]}},
+        "judgment": {"type": "string"}, "abstain": {"type": "boolean"},
+        "conditional_on": {"type": "array", "items": {"type": "string"}},
+        "would_change": {"type": "array", "items": {"type": "string"}},
         "text": {"type": "string"},
         "support": {"type": "array", "items": {"type": "string"}},
         "findings": {"type": "array", "items": {"type": "string"},

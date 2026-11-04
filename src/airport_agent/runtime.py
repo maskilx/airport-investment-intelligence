@@ -49,6 +49,13 @@ You answer ONLY with evidence produced by the tools. Workflow:
    - hypothesis {text, support:[indicator F#], alternatives:[competing explanations]}: causes, unmet demand,
      terminal or capacity need belong here, never in facts.
    - financial: NOT available (no project-economics model). Say profitability/ROI is not established.
+   - assessment {objective, criteria:[{name, why, findings:[F#], favors, direction?}], judgment, conditional_on,
+     would_change, abstain?}: ONLY when the user asks for a judgment (better, prioritise, recommend, suitable,
+     attractive, overall assessment); never for plain fact questions. Choose criteria that fit the stated objective
+     (not the screen's factors unless the objective is passenger growth opportunity). If the objective is ambiguous
+     and different readings would change the answer, ask first; otherwise state your interpretation as the objective.
+     Every criterion cites findings you computed. Use weights or scores only from a documented model (op=screen/rank);
+     otherwise weigh criteria qualitatively and say so. If evidence is insufficient, set abstain: true.
    Headline and body frame and list values only. Limitations may mention money/capacity only as not established.
    A year may appear only if it is the period of a cited finding. Add charts:[{type, title, findings:[F#...]}].
 5. For investment rankings use op=screen: a passenger-growth opportunity screen (stage A), not terminal need or
@@ -243,6 +250,7 @@ class Agent:
         emit({"type": "turn_started", "turn": turn, "question": question})
         if self.web:
             self.web.new_turn()
+        self.session.question = question                     # lets compose_answer gate assessment claims
         mem, recent, ctx_stats = self.ctx.build(cid, question, self.state, self.evidence, fmt_value)
         emit({"type": "context", "turn": turn, **ctx_stats})
         user_for_model = f"{mem}\n\n## Current question\n{question}" if mem else question

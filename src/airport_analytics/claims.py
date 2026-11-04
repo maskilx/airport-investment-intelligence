@@ -59,6 +59,21 @@ LEX = {
 NEGATION = _W(r"not|no|never|cannot|can't|isn't|aren't|doesn't|without|unknown|unavailable|insufficient|"
               r"unmodell?ed|excluded|lacks?|absent|beyond|outside|neither|nor")
 RANK_OPS = ("rank", "screen")
+
+# --- assessment questions: judgment, prioritisation, suitability, recommendation (not plain facts) ---------------
+ASSESSMENT_Q = re.compile(r"\b(better|best|worse|worst|prefer\w*|prioriti[sz]\w*|priority|recommend\w*|should (?:we|i|the firm)|"
+                          r"suitab\w+|suited|attractive\w*|assess\w*|evaluat\w+|worth|opportunit\w+|candidates?|"
+                          r"stronger|weaker|promising|which (?:one|airport) (?:to|would|should)|trade-?offs?|pros and cons)\b", re.I)
+
+
+def is_assessment_question(q: str | None) -> bool:
+    """Does the user ask for a judgment (prioritise, recommend, suitability, overall assessment)? Plain fact questions
+    ('what is the long-haul share', 'how many passengers', 'average delay', 'compare X and Y') do not qualify."""
+    return bool(q and ASSESSMENT_Q.search(q))
+
+
+ABSTAIN_FAVORS = ("none", "neither", "unclear", "mixed")
+DIRECTIONS = ("higher_is_better", "lower_is_better")
 RELATIONS = ("higher", "lower", "similar", "highest", "lowest")
 SIMILAR_REL_TOL = 0.05            # "similar" = within 5% of the larger magnitude (documented, not tuned)
 PH = re.compile(r"\{(F\d+)(?:\.\w+)?\}")
@@ -73,6 +88,7 @@ FORBIDDEN = {
     "ranking": ("certainty", "financial", "causal", "capacity_need", "comparative"),
     "hypothesis": ("certainty", "financial"),
     "external": ("certainty",),
+    "assessment": ("certainty", "financial", "causal"),
     "caveat": ("certainty",),
 }
 NEEDS_NEGATION = ("financial", "causal", "capacity_need", "judgement")
@@ -252,6 +268,8 @@ def validate_claim(i: int, c: dict, store: EvidenceStore) -> list[str]:
         for k, a in enumerate(alts):
             errs += check_vocab(f"{where}.alternatives[{k}]", a, "hypothesis")
         errs += check_vocab(where, text, "hypothesis")
+    elif kind == "assessment":
+        errs += _validate_assessment(where, c, store)
     elif kind == "financial":
         if not fs or any(f.epistemic_class != "financial_model" for f in fs):
             errs.append(f"{where}: financial claims require findings from a project-economics model "
@@ -266,12 +284,89 @@ def validate_claim(i: int, c: dict, store: EvidenceStore) -> list[str]:
     return errs
 
 
-def validate_answer(answer: dict[str, Any], store: EvidenceStore) -> list[str]:
+def _validate_assessment(where: str, c: dict, store: EvidenceStore) -> list[str]:
+    """An evidence-based judgment: objective -> criteria (each tied to findings, with the option it favours) ->
+    conditional judgment, or an explicit abstention. Code checks traceability and every checkable direction; the model
+    supplies the interpretation and weighs the criteria, but cannot invent values, weights or support."""
+    errs: list[str] = []
+    obj = (c.get("objective") or "").strip()
+    crits = [x for x in c.get("criteria") or [] if isinstance(x, dict)]
+    abstain = bool(c.get("abstain"))
+    if not obj:
+        errs.append(f"{where}: an assessment needs the objective being evaluated (state the interpretation chosen)")
+    errs += check_vocab(f"{where}.objective", obj, "assessment")
+    if len(crits) < (1 if abstain else 2):
+        errs.append(f"{where}: an assessment needs at least two criteria, each tied to findings (or abstain: true)")
+    cited: set[str] = set()
+    for k, cr in enumerate(crits):
+        w = f"{where}.criteria[{k}]"
+        ids = [i for i in cr.get("findings") or []]
+        if not cr.get("name"):
+            errs.append(f"{w}: name the criterion")
+        if not ids:
+            errs.append(f"{w}: every criterion must cite the findings it rests on (a criterion without evidence is an opinion)")
+            continue
+        miss = [i for i in ids if i not in store]
+        if miss:
+            errs.append(f"{w}: {miss} are not findings from this session")
+            continue
+        fs = [store.get(i) for i in ids]
+        cited |= {f.id for f in fs}
+        subs = {_subject(f) for f in fs}
+        fav = (cr.get("favors") or "").strip()
+        if fav and fav.lower() not in ABSTAIN_FAVORS and fav not in subs:
+            errs.append(f"{w}: favors {fav!r}, but its findings are about {sorted(subs)}")
+        d = cr.get("direction")
+        if d and d not in DIRECTIONS:
+            errs.append(f"{w}: direction must be one of {list(DIRECTIONS)}")
+        elif d and fav and fav.lower() not in ABSTAIN_FAVORS and len(fs) >= 2:
+            if not _compat(fs, True) and all(isinstance(f.value, (int, float)) for f in fs):
+                best = (max if d == "higher_is_better" else min)(fs, key=lambda f: f.value)
+                ties = [f for f in fs if f is not best and _close(f.value, best.value)]
+                if ties:
+                    errs.append(f"{w}: the values are within {SIMILAR_REL_TOL:.0%} of each other; favors must be 'neither'")
+                elif _subject(best) != fav:
+                    errs.append(f"{w}: with {d}, the findings favour {_subject(best)}, not {fav}")
+        for t in (cr.get("name", ""), cr.get("why", "")):
+            errs += check_vocab(w, t, "assessment")
+    judg = (c.get("judgment") or "").strip()
+    if abstain:
+        if not c.get("would_change"):
+            errs.append(f"{where}: an abstention must say what evidence would allow a judgment (would_change)")
+    else:
+        if not judg:
+            errs.append(f"{where}: give the overall judgment, or set abstain: true when the evidence is insufficient")
+        if not c.get("conditional_on"):
+            errs.append(f"{where}: state what the judgment is conditional on (conditional_on)")
+        if not c.get("would_change"):
+            errs.append(f"{where}: state what additional evidence could change the conclusion (would_change)")
+        favoured = {(cr.get("favors") or "").strip() for cr in crits}
+        named = set(re.findall(r"\b[A-Z][A-Z0-9]{2,3}\b", judg)) & {s for i in cited for s in [_subject(store.get(i))]}
+        unsupported = [n for n in named if n not in favoured]
+        if named and len(named) == 1 and unsupported:
+            errs.append(f"{where}: the judgment points to {unsupported[0]}, but no criterion favours it")
+    errs += check_vocab(f"{where}.judgment", judg, "assessment")
+    for key in ("conditional_on", "would_change"):
+        for k, t in enumerate(c.get(key) or []):
+            errs += check_vocab(f"{where}.{key}[{k}]", t, "caveat")
+    blob = " ".join([obj, judg] + [str(cr.get("why", "")) for cr in crits])
+    if re.search(r"\b(weight\w*|scores?|scored|points)\b", blob, re.I) and not any(
+            store.get(i).metric_id.startswith(("screen_score", "screen_contribution", "rank_score")) for i in cited):
+        errs.append(f"{where}: weights or scores need a documented scoring model (cite screen/rank findings); "
+                    "otherwise give a qualitative trade-off or ask the user for priorities")
+    return errs
+
+
+def validate_answer(answer: dict[str, Any], store: EvidenceStore, question: str | None = None) -> list[str]:
     errs: list[str] = []
     claims = [c for c in answer.get("claims", []) or [] if isinstance(c, dict)]
+    if question is not None and not is_assessment_question(question) and any(c.get("kind") == "assessment" for c in claims):
+        errs.append("assessment claims are only for questions that ask for a judgment, priority or recommendation; "
+                    "this question asks for facts: answer with fact/comparison/ranking claims")
     cited = {p for t in (answer.get("headline"), answer.get("body")) for p in PH.findall(t or "")}
     for c in claims:
         cited |= set(PH.findall(c.get("text", "") or "")) | set(c.get("support") or []) | set(c.get("findings") or [])
+        cited |= {i for cr in c.get("criteria") or [] if isinstance(cr, dict) for i in cr.get("findings") or []}
     for c in answer.get("charts", []) or []:
         if isinstance(c, dict):
             cited |= set(c.get("findings") or [])
@@ -330,6 +425,23 @@ def expand(c: dict, store: EvidenceStore) -> dict:
             parts.append(f"{_subject(f)} is ranked {s['rank']}{of} by {{{i}.name}}"
                          + (f" ({scen} scenario)" if scen else "") + rob + main)
         return {**c, "text": "; ".join(parts) + "." + (f" {note}" if note else ""), "support": list(c["findings"])}
+    if kind == "assessment":
+        crit = [cr for cr in c.get("criteria") or [] if isinstance(cr, dict)]
+        sup = list(dict.fromkeys(i for cr in crit for i in cr.get("findings") or []))
+        lines = [f"Objective: {c.get('objective', '').strip()}"]
+        for cr in crit:
+            fav = (cr.get("favors") or "").strip()
+            lines.append(f"Criterion: {cr.get('name', '').strip()}"
+                         + (f" (favours {fav})" if fav and fav.lower() not in ABSTAIN_FAVORS else " (no clear advantage)")
+                         + (f": {cr.get('why', '').strip()}" if cr.get("why") else "")
+                         + " [" + ", ".join(cr.get("findings") or []) + "]")
+        lines.append("Judgment: no definitive recommendation; the evidence is insufficient." if c.get("abstain")
+                     else f"Judgment: {c.get('judgment', '').strip()}")
+        if c.get("conditional_on"):
+            lines.append("Holds only if: " + "; ".join(x.strip().rstrip(".") for x in c["conditional_on"]) + ".")
+        if c.get("would_change"):
+            lines.append("Would change with: " + "; ".join(x.strip().rstrip(".") for x in c["would_change"]) + ".")
+        return {**c, "text": "\n".join(lines), "support": sup}
     if kind == "hypothesis" and c.get("alternatives"):
         alts = "; ".join(a.strip().rstrip(".") for a in c["alternatives"] if a.strip())
         return {**c, "text": f"{c.get('text', '').strip()} Competing explanations: {alts}."}
