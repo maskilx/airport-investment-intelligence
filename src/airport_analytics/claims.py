@@ -326,8 +326,9 @@ def expand(c: dict, store: EvidenceStore) -> dict:
                 rob = (" in every weighting scenario" if lo == hi else
                        f"; across the weighting scenarios its rank ranges from {lo} to {hi}")
             scen = ((f.execution or {}).get("screening") or {}).get("scenario")
+            main = f"; largest contribution: {s['main_contributor']}" if s.get("main_contributor") else ""
             parts.append(f"{_subject(f)} is ranked {s['rank']}{of} by {{{i}.name}}"
-                         + (f" ({scen} scenario)" if scen else "") + rob)
+                         + (f" ({scen} scenario)" if scen else "") + rob + main)
         return {**c, "text": "; ".join(parts) + "." + (f" {note}" if note else ""), "support": list(c["findings"])}
     if kind == "hypothesis" and c.get("alternatives"):
         alts = "; ".join(a.strip().rstrip(".") for a in c["alternatives"] if a.strip())

@@ -214,6 +214,34 @@ def validate(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str]
     return errs
 
 
+CLASS_LABEL = {"observed": "Measured", "calculated": "Calculated", "forecast": "Forecast (FAA)",
+               "estimated": "Estimate", "exploratory": "Exploratory query"}
+
+
+def claim_label(c: dict, store: EvidenceStore) -> str:
+    """What kind of knowledge a claim is, for the reader: measured fact vs deterministic calculation vs interpretation
+    vs hypothesis vs external source. Derived from the claim kind and its findings' evidence classes, never from prose."""
+    kind = c.get("kind")
+    if kind == "fact":
+        cls = {store.get(f).epistemic_class for f in c.get("support") or [] if f in store}
+        if len(cls) == 1:
+            return CLASS_LABEL.get(next(iter(cls)), "Fact")
+        return "Measured + calculated" if cls <= {"observed", "calculated"} else "Mixed evidence"
+    return {"comparison": "Comparison (computed)", "ranking": "Ranking (computed)", "inference": "Interpretation",
+            "hypothesis": "Hypothesis (not established by the data)", "external": "External source",
+            "financial": "Financial"}.get(kind, str(kind))
+
+
+def scoring_method(answer: dict, claims: list[dict], store: EvidenceStore) -> list[str]:
+    ids = {m[0] for m in PH.findall(answer.get("body", "") or "")}
+    ids |= {f for c in claims for f in (c.get("support") or [])}
+    ids |= {f for c in answer.get("charts", []) or [] if isinstance(c, dict) for f in c.get("findings") or []}
+    if not any(f in store and store.get(f).metric_id.startswith("screen_score") for f in ids):
+        return []
+    from .screening import method_summary
+    return method_summary()
+
+
 def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] | None = None,
            web: dict[str, dict] | None = None) -> dict[str, Any]:
     web = web or {}
@@ -274,13 +302,15 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
                 lines.append(f"- *External source ({safe_label(it['domain'] or '', 'web')})*: {r(c['text'])} "
                              f"\u2014 \u201c{INVISIBLE.sub('', c['quote']).strip()}\u201d [{it['id']}]({it['url']})")
                 continue
-            tag = {"fact": "Fact", "comparison": "Comparison", "ranking": "Ranking", "inference": "Inference",
-                   "hypothesis": "Hypothesis (not established by the data)"}[c["kind"]]
+            tag = claim_label(c, store)
             sup = ", ".join(c.get("support") or [])
             lines.append(f"- *{tag}*: {r(c['text'])}" + (f" [{sup}]" if sup else ""))
             used += c.get("support") or []
     if answer.get("assumptions"):
         lines += ["", "**Assumptions**"] + [f"- {r(a)}" for a in answer["assumptions"]]
+    method = scoring_method(answer, claims, store)
+    if method:
+        lines += ["", "**How the score is calculated (deterministic, from config/screening.toml)**"] + [f"- {m}" for m in method]
     # evidence appendix (automatic)
     ids = list(dict.fromkeys(used))
     fs = [store.get(i) for i in ids]
@@ -308,7 +338,9 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
     charts = [c for c in answer.get("charts", []) or [] if isinstance(c, dict)]
     ids = list(dict.fromkeys(ids + [f for c in charts for f in c["findings"]]))
     structured = {"headline": r(answer["headline"]), "body": rm(answer["body"]),
-                  "claims": [{"kind": c["kind"], "text": rm(c["text"]), "support": c.get("support") or [],
+                  "scoring_method": method,
+                  "claims": [{"kind": c["kind"], "label": claim_label(c, store), "text": rm(c["text"]),
+                              "support": c.get("support") or [],
                               **({"source": c["source"], "quote": INVISIBLE.sub("", c["quote"]).strip()}
                                  if c["kind"] == "external" else {})}
                              for c in claims],

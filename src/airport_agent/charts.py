@@ -45,6 +45,10 @@ def build_chart(spec: dict, store: EvidenceStore, idx: int = 0) -> dict:
     rows = [_row(f) for f in fs]
     notes = []
     num = [r for r in rows if isinstance(r["value"], (int, float))]
+    cats_ = [r["category"] for r in num if r["category"]]
+    if len(cats_) != len(set(cats_)) and not any(r["time"] for r in num):
+        for r in num:                  # same airport in several periods: the period is the category, not a duplicate bar
+            r["category"] = f"{r['category']} · {r['period']}" if r["category"] else r["period"]
     dropped = [r["fid"] for r in rows if r not in num]
     if dropped:
         notes.append(f"not plotted (no numeric value / not established): {', '.join(dropped)}")

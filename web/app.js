@@ -201,7 +201,7 @@ async function ask(text) {
         else if (e.type === "memory_compacted") strips.append(h("div", { class: "thought" }, `Memory compacted: turns ≤ ${e.upto_turn} summarised (${e.method}); findings unchanged.`));
         else if (e.type === "error") strips.append(h("div", { class: "thought" }, `Error: ${e.message}`));
         else if (e.type === "answer") {
-          status(`${tools} tool calls · ${e.latency_s}s · ${e.usage?.requests ?? 0} model requests`);
+          status(`${tools} tool calls · ${e.latency_s}s · ${e.usage?.requests ?? 0} ${state.health && !state.health.llm ? "planner steps" : "model requests"}`);
           renderAnswer(el, e);
           strips.open = false;
           if ($("#speakToggle").checked) speak(e);
@@ -209,7 +209,9 @@ async function ask(text) {
       }
     }
   } catch (err) {
-    el.append(h("div", { class: "answer err-card plain-answer" }, `Request failed: ${err.message}`));
+    el.append(h("div", { class: "answer err-card plain-answer" }, /fetch|network/i.test(err.message)
+      ? "Cannot reach the local server. Is it running? Start it with ./scripts/start.sh, then ask again (earlier answers are kept)."
+      : `Request failed: ${err.message}`));
   } finally {
     strips.querySelector(".pulse").classList.add("off");
     setRunning(false);
@@ -249,7 +251,7 @@ function renderAnswer(turnEl, e) {
     }
     if (s.claims?.length) {
       card.append(h("div", { class: "section" }, h("h4", {}, "Findings and reasoning"), h("ul", { class: "claims" },
-        s.claims.map((c) => h("li", {}, h("span", { class: `tag ${c.kind}` }, c.kind === "external" ? "web" : c.kind),
+        s.claims.map((c) => h("li", {}, h("span", { class: `tag ${c.kind}`, title: "how this statement is established" }, c.label || (c.kind === "external" ? "web" : c.kind)),
           h("span", {}, h("span", { html: rich(c.text).replace(/^<p>|<\/p>$/g, "") }),
             c.kind === "external" ? h("span", {}, " — ", h("q", { class: "quote" }, c.quote), " ", h("button", { class: "chip ext", "data-fid": c.source }, c.source)) : null,
             c.support?.length ? h("span", { class: "support" }, "[", c.support.map((id) => h("button", { "data-fid": id }, id)), "]") : null))))));
@@ -259,13 +261,19 @@ function renderAnswer(turnEl, e) {
         h("ul", { class: "plain" }, s.external.map((w) => h("li", {}, h("button", { class: "chip ext", "data-fid": w.id }, w.id), " ",
           h("a", { href: w.url, target: "_blank", rel: "noopener noreferrer" }, w.title), ` — ${w.domain}, retrieved ${w.retrieved_at.slice(0, 10)}`)))));
     }
-    const lists = [["Assumptions", s.assumptions], ["Limitations", s.limitations]].filter(([, v]) => v?.length);
+    if (s.scoring_method?.length) {
+      card.append(h("div", { class: "section" }, h("details", { class: "fold", open: true },
+        h("summary", {}, "How the score is calculated (deterministic, config/screening.toml)"),
+        h("ul", { class: "plain" }, s.scoring_method.map((m) => h("li", {}, m))))));
+    }
+    const lists = [["Assumptions", s.assumptions], ["Limitations (what the data cannot establish)", s.limitations]].filter(([, v]) => v?.length);
     for (const [k, v] of lists) card.append(h("div", { class: "section" }, h("h4", {}, k), h("ul", { class: "plain" }, v.map((x) => h("li", { html: rich(x).replace(/^<p>|<\/p>$/g, "") })))));
     if (s.evidence_detail?.length) {
-      const tbl = h("table", { class: "ev" }, h("thead", {}, h("tr", {}, ["Id", "Finding", "Value", "Class", "Source"].map((x) => h("th", {}, x)))),
+      const tbl = h("table", { class: "ev" }, h("thead", {}, h("tr", {}, ["Id", "Finding", "Value", "Class", "Source", "Coverage"].map((x) => h("th", {}, x)))),
         h("tbody", {}, s.evidence_detail.map((f) => h("tr", { "data-fid": f.id },
           h("td", { class: "id" }, f.id), h("td", {}, f.label), h("td", { class: "v" }, f.formatted),
-          h("td", {}, h("span", { class: `cls ${f.class}` }, f.class)), h("td", { class: "mono", style: "font-size:11px" }, (f.sources || []).join("; "))))));
+          h("td", {}, h("span", { class: `cls ${f.class}` }, f.class)), h("td", { class: "mono", style: "font-size:11px" }, (f.sources || []).join("; ")),
+          h("td", { class: "mono", style: "font-size:11px" }, f.coverage?.ratio != null ? `${Math.round(f.coverage.ratio * 100)}% (${f.coverage.window ?? ""})` : "")))));
       const fold = h("details", { class: "fold" }, h("summary", {}, `Evidence (${s.evidence_detail.length})`), h("div", { class: "tscroll" }, tbl));
       if (s.evidence_detail.length <= 8) fold.open = true;
       card.append(h("div", { class: "section" }, fold));
@@ -277,7 +285,9 @@ function renderAnswer(turnEl, e) {
     }
   }
   const foot = h("div", { class: "a-foot" },
-    e.usage ? h("span", {}, `${e.usage.requests ?? 0} model requests · ${(e.usage.input_tokens ?? 0).toLocaleString()} in / ${(e.usage.output_tokens ?? 0).toLocaleString()} out tokens`) : "",
+    e.usage ? h("span", {}, state.health && !state.health.llm
+      ? `${e.usage.requests ?? 0} offline planner steps · no model API calls`
+      : `${e.usage.requests ?? 0} model requests · ${(e.usage.input_tokens ?? 0).toLocaleString()} in / ${(e.usage.output_tokens ?? 0).toLocaleString()} out tokens`) : "",
     e.latency_s != null ? h("span", {}, `${e.latency_s}s`) : "",
     state.health ? h("span", {}, state.health.llm ? `planner: ${state.health.backend}` : "planner: offline rules (no LLM)") : "",
     h("button", { onclick: () => navigator.clipboard?.writeText(e.markdown || "") }, "copy markdown"));
@@ -306,13 +316,13 @@ function chartEl(c) {
   if (c.vega_lite && window.vegaEmbed) {
     const vis = h("div", { class: "vis" });
     box.append(vis);
-    requestAnimationFrame(() => {
+    setTimeout(() => {          // not rAF: it never fires in a background tab, leaving charts blank
       vegaEmbed(vis, { ...c.vega_lite, config: chartTheme() }, { actions: { export: true, source: false, compiled: false, editor: false }, renderer: "svg" })
         .then(({ view }) => view.addEventListener("click", (_, item) => {
           const fid = item?.datum?.fid;
           if (fid) showFinding(String(fid).split(",")[0]);
         })).catch((err) => vis.replaceWith(h("p", { class: "note" }, `Chart could not render: ${err.message}`)));
-    });
+    }, 0);
   } else {
     box.append(h("table", { class: "ev" }, h("tbody", {}, c.rows.map((r) => h("tr", { "data-fid": r.fid },
       h("td", { class: "id" }, r.fid), h("td", {}, r.label), h("td", { class: "v" }, r.formatted))))));

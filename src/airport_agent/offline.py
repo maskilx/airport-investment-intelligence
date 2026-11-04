@@ -294,14 +294,22 @@ class OfflineBackend:
             if r.get("op") == "trend":
                 for s in r.get("summary", []):
                     cells.append((s.get("airport"), "slope", s["slope_per_month"]["id"]))
+        vals_by_id = {}
+        for _, r_ in ok:
+            for b in r_.get("findings", []) or []:
+                vals_by_id[b["id"]] = b.get("value")
+        missing = [f for _, _, f in cells if vals_by_id.get(f, 0) is None]
+        cells = [x for x in cells if x[2] not in missing]
         by_ap: dict[str, list[str]] = {}
         for ap, _, fid in cells:
             by_ap.setdefault(ap or "the selected airports", []).append(fid)
-        body = []
-        for ap, fids in by_ap.items():
-            body.append(f"- **{ap}** \u2014 " + "; ".join(f"{{{f}.name}} {{{f}}} ({{{f}.period}})" for f in fids[:8]))
+        body = [f"- **{ap}**: " + "; ".join(f"{{{f}.name}} {{{f}}} ({{{f}.period}})" for f in fids[:8])
+                for ap, fids in by_ap.items()]
         claims = [{"kind": "fact", "text": f"{ap}: {{{f}.name}} is {{{f}}} ({{{f}.period}}).", "support": [f]}
                   for ap, _, f in cells[:12] if ap]
+        if missing:
+            lim.append("Not established (the source has no qualifying records for this airport and window, e.g. On-Time "
+                       "covers only reporting carriers): " + "; ".join(f"{{{f}.label}}" for f in missing[:8]) + ".")
         charts = []
         if len(by_ap) > 1:
             metric_keys = list(dict.fromkeys(k for _, k, _ in cells))
@@ -333,6 +341,10 @@ class OfflineBackend:
                 "unmet": "Demand-pressure indicators", "trend": "Trend"}.get(intent, "Requested metrics")
         ans = {"headline": f"{head}: {', '.join(a for a in by_ap if a)}", "body": "\n\n".join(body), "claims": claims,
                "assumptions": [], "limitations": lim, "charts": charts}
+        if intent == "congestion" and cells:
+            ans["claims"].append({"kind": "inference", "support": [f for _, _, f in cells][:10], "text":
+                                  "These are airside indicators: they show how busy and how punctual the airfield "
+                                  "operation is, not how crowded the passenger terminal is."})
         if intent == "congestion":
             ans["assumptions"].append("Congestion is read from airside indicators (delay rate, taxi-out, scheduled "
                                       "peak hour, tower operations); terminal/landside congestion is not in the data.")
@@ -363,13 +375,13 @@ class OfflineBackend:
             c = row["components"]
             flags = ", ".join(f["flag"] for f in row.get("flags", [])) or "none"
             tie = " (tied with the previous airport)" if row.get("tied_with_previous") else ""
-            lines.append(f"- **{row['airport']}**{tie}: score {{{row['score']['id']}}}; incremental TAF enplanements "
-                         f"{{{c['incremental_enplanements']['input']['id']}}}, realized growth "
-                         f"{{{c['realized_growth']['input']['id']}}}, market income {{{c['market_income']['input']['id']}}}; "
-                         f"flags: {flags}.")
+            ci, cg, cm = c["incremental_enplanements"], c["realized_growth"], c["market_income"]
+            lines.append(f"- **{row['airport']}**{tie}: score **{{{row['score']['id']}}}** = "
+                         f"projected passenger increase {{{ci['points_id']}}} + realized growth {{{cg['points_id']}}} + "
+                         f"market income {{{cm['points_id']}}}. Inputs: FAA TAF increase {{{ci['input']['id']}}}, "
+                         f"T-100 growth {{{cg['input']['id']}}}, CBSA income per capita {{{cm['input']['id']}}}. "
+                         f"Flags: {flags}.")
             fids.append(row["score"]["id"])
-            claims.append({"kind": "fact", "text": f"{row['airport']} screens at {{{row['score']['id']}}}.",
-                           "support": [row["score"]["id"]]})
         if fids:      # rank, set size and robustness across weighting scenarios are written by code from findings
             claims.append({"kind": "ranking", "findings": fids[:3]})
         below = [b["airport"] for b in (r.get("gate") or {}).get("below_scale", [])]
@@ -381,7 +393,8 @@ class OfflineBackend:
         lim.append("Constraint flags use records in effect at the screen's as-of date (recorded with each score); expired "
                    "caps are excluded and records without primary or secondary evidence are flagged as unverified, not used.")
         return {"headline": f"Passenger growth opportunity screen{' in ' + region if region else ''}",
-                "body": "Airports in rank order (base scenario):\n\n" + "\n".join(lines),
+                "body": "Airports in rank order (base scenario). Each score is the sum of its weighted factor "
+                        "contributions; the scoring method is listed below the answer.\n\n" + "\n".join(lines),
                 "claims": claims,
                 "assumptions": ["Screen weights and anchors are the documented base scenario (config/screening.toml); "
                                 "a screening rank, not a valuation."],

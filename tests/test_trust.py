@@ -416,3 +416,57 @@ def test_screen_is_framed_as_stage_a_and_replays_on_its_as_of_date(S):
     assert f.label.startswith("Passenger growth opportunity score") and "terminal" in r["disclaimer"].lower()
     assert f.execution["spec"]["options"]["as_of"] == r["constraints_as_of"]
     assert S.call("get_finding", {"id": f.id, "reproduce": True})["replay"]["match"] is True
+
+
+# ---------------------------------------------------------------- explanation quality (first release)
+def test_screen_answer_explains_score_composition_and_method():
+    from airport_agent.offline import OfflineBackend
+    from airport_agent.runtime import Agent
+    a = Agent(OfflineBackend())
+    r = a.ask("Which airports in New England are strong candidates for terminal expansion?")
+    assert r.kind == "answer"
+    s = r.structured
+    method = " ".join(s["scoring_method"])
+    for must in ("weight", "Eligibility", "Missing data", "no reweighting", "Ties", "Robustness", "does not establish"):
+        assert must in method, must
+    # each score equals the sum of its per-factor contribution findings (all inspectable)
+    for f in [a.evidence.get(i) for i in r.cited_findings if a.evidence.get(i).metric_id.startswith("screen_score")]:
+        parts = [a.evidence.get(i) for i in f.inputs if a.evidence.get(i).metric_id.startswith("screen_contribution")]
+        assert len(parts) == 3 and abs(sum(p.value for p in parts) - f.value) < 1e-9
+        assert f.subject["main_contributor"]
+    assert "largest contribution" in r.markdown and "How the score is calculated" in r.markdown
+    labels = {c["label"] for c in s["claims"]}
+    assert "Ranking (computed)" in labels
+
+
+def test_claim_labels_distinguish_measured_calculated_forecast_and_interpretation():
+    from airport_analytics.evidence import EvidenceStore, Finding, SourceRef
+    from airport_analytics.render import claim_label
+    st = EvidenceStore()
+    for fid, cls in (("F1", "observed"), ("F2", "calculated"), ("F3", "forecast")):
+        st.add(Finding(fid, "m", "m — X", 1.0, "u", "number", cls, "d", "1", {}, {"label": "w"}, [SourceRef("s", [], [])]))
+    assert claim_label({"kind": "fact", "support": ["F1"]}, st) == "Measured"
+    assert claim_label({"kind": "fact", "support": ["F2"]}, st) == "Calculated"
+    assert claim_label({"kind": "fact", "support": ["F3"]}, st).startswith("Forecast")
+    assert claim_label({"kind": "inference", "support": ["F1"]}, st) == "Interpretation"
+
+
+def test_not_established_values_become_a_limitation_not_a_fact():
+    from airport_agent.offline import OfflineBackend
+    from airport_agent.runtime import Agent
+    r = Agent(OfflineBackend()).ask("How congested is HVN airport?")
+    assert r.kind == "answer"
+    assert "n/a" not in " ".join(c["text"] for c in r.structured["claims"])
+    assert any("Not established" in x for x in r.structured["limitations"])
+
+
+def test_chart_labels_repeated_airport_by_period():
+    from airport_agent.charts import build_chart
+    from airport_analytics.evidence import EvidenceStore, Finding, SourceRef
+    st = EvidenceStore()
+    for i, w in enumerate(["2024", "2025"], 1):
+        st.add(Finding(f"F{i}", "pax", "Passengers — SFO", float(i), "passengers", "number", "observed", "d", "1",
+                       {"airport_code": "SFO"}, {"label": w}, [SourceRef("s", [], [])]))
+    ch = build_chart({"type": "bar", "findings": ["F1", "F2"]}, st)
+    cats = [r["category"] for r in ch["vega_lite"]["data"]["values"]]
+    assert len(set(cats)) == 2 and all("SFO" in c for c in cats)

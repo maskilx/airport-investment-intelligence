@@ -106,6 +106,48 @@ def _hours_above(ctx, aid: int, rate: float, months: list[str]) -> tuple[float, 
     return share, n
 
 
+def _anchor(c: dict, v: float) -> str:
+    """Anchor values in the reader's units: growth rates as %, income as $, counts with separators."""
+    v = float(v)
+    if "income" in c["id"]:
+        return f"${v:,.0f}"
+    if max(abs(float(c["lo"])), abs(float(c["hi"]))) <= 1:
+        return f"{v:+.0%}"
+    return f"{v:,.0f}"
+
+
+def score_definition(cfg: dict, w: list[float], gate: float) -> str:
+    comps = cfg["component"]
+    parts = "; ".join(f"{c['label']}: weight {wi:g}, {c['scale']} scale {_anchor(c, c['lo'])} → 0 points and {_anchor(c, c['hi'])} → 100 "
+                      f"points (clipped)" for c, wi in zip(comps, w))
+    return (f"Score = Σ weight × factor points (0-100). {parts}. Eligibility: at least {gate:,.0f} annual FAA "
+            f"enplanements (latest calendar year); smaller airports are listed, not scored. An airport missing any "
+            f"factor input is listed as not scored: no imputation and no reweighting. Gaps under "
+            f"{float(cfg['ties']['points']):g} points are reported as ties. Model {cfg['model_version']}.")
+
+
+def method_summary(cfg: dict | None = None) -> list[str]:
+    """Deterministic, human-readable scoring method (rendered under every answer that cites a screen score)."""
+    from .analysis import load_screening
+    cfg = cfg or load_screening()
+    comps, base = cfg["component"], cfg["scenarios"]["base"]
+    out = [f"Purpose: ranks passenger growth opportunity (stage A). It does not establish that a terminal is the binding "
+           f"constraint or that a project pays (model {cfg['model_version']}, config/screening.toml)."]
+    for i, (c, wi) in enumerate(zip(comps, base), 1):
+        out.append(f"Factor {i}, {c['label']}: weight {wi:.0%}; {c['scale']} scale, {_anchor(c, c['lo'])} → 0 points and "
+                   f"{_anchor(c, c['hi'])} → 100 points; values outside are clipped.")
+    out += [f"Score = Σ weight × factor points (0-100). Each airport's per-factor points are separate findings in the evidence.",
+            f"Eligibility: at least {float(cfg['gate']['min_enplanements']):,.0f} annual FAA enplanements (latest calendar "
+            f"year); smaller airports are listed as below scale, not scored.",
+            "Missing data: an airport missing any factor input is listed as not scored. No imputation, no reweighting.",
+            f"Ties: score gaps under {float(cfg['ties']['points']):g} points are reported as ties.",
+            "Robustness: ranks are recomputed under the weight scenarios " + "; ".join(
+                f"{n} ({', '.join(f'{x:.0%}' for x in ws)})" for n, ws in cfg["scenarios"].items()) + ".",
+            "Flags (regulatory caps, curfews, airfield capacity, carrier concentration) are shown beside the score and "
+            "never folded into it. Only primary or secondary evidence in effect at the as-of date raises a flag."]
+    return out
+
+
 def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
     from .analysis import _new, _per_airport, _round, load_screening
     cfg = load_screening()
@@ -169,15 +211,26 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
         code = ctx.resolver.code(aid)
         sc = total(svals, w)
         contrib = [wi * si for wi, si in zip(w, svals)]
+        # one calculated finding per factor: weight x anchored points, so "why this score" is inspectable
+        cfs = []
+        for c, x, wi, si, p in zip(comps, fs, w, svals, contrib):
+            cfs.append(_new(ctx, metric_id=f"screen_contribution:{c['id']}", label=f"{c['label']}: points contributed — {code} ({scen_name})",
+                            value=p, unit="points (anchored scale)", fmt="number", epistemic_class="calculated",
+                            definition=f"weight {wi:g} × anchored factor score {si:.1f}/100 "
+                                       f"({c['scale']} scale, {_anchor(c, c['lo'])} → 0 and {_anchor(c, c['hi'])} → 100, clipped)",
+                            formula_version=cfg["model_version"], subject={"airport": aid, "airport_code": code,
+                                                                         "component": c["id"]},
+                            window=x.window, sources=list(x.sources), inputs=[x.id]))
         f = _new(ctx, metric_id=f"screen_score:{cfg['model_version']}", label=f"Passenger growth opportunity score — {code} ({scen_name})",
                  value=sc, unit="points (anchored scale)", fmt="number", epistemic_class="calculated",
-                 definition="Σ weight × anchored score of: " + "; ".join(
-                     f"{c['label']} [{c['lo']}→{c['hi']}, {c['scale']}] w={wi}" for c, wi in zip(comps, w)),
+                 definition=score_definition(cfg, w, gate),
                  formula_version=cfg["model_version"],
                  subject={"airport": aid, "airport_code": code, "rank": rank, "of": len(order),
-                          "scenario_ranks": {n: ranks_by_scen[n][aid] for n in weights}},
+                          "scenario_ranks": {n: ranks_by_scen[n][aid] for n in weights},
+                          "main_contributor": comps[max(range(len(contrib)), key=lambda i: contrib[i])]["label"]},
                  window={"label": "see inputs"}, sources=[s for x in fs for s in x.sources],
-                 caveats=[cfg["disclaimer"], "TAF component is an FAA forecast (unconstrained)."], inputs=[x.id for x in fs])
+                 caveats=[cfg["disclaimer"], "TAF component is an FAA forecast (unconstrained)."],
+                 inputs=[x.id for x in cfs] + [x.id for x in fs])
         flags = []
         for r in caps.get(code, []):
             strong = r["evidence"] in FLAG_LEVELS
@@ -214,12 +267,14 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
         prev = sc
         table.append({"rank": rank, "airport": code, "score": {"id": f.id, "value": round(sc, 1)},
                       "tied_with_previous": tie,
-                      "components": {c["id"]: {"input": {"id": x.id, "value": _round(x.value)}, "points": round(p, 1)}
-                                     for c, x, p in zip(comps, fs, contrib)},
+                      "components": {c["id"]: {"input": {"id": x.id, "value": _round(x.value)}, "points": round(p, 1),
+                                               "points_id": cf.id}
+                                     for c, x, p, cf in zip(comps, fs, contrib, cfs)},
                       "scenario_ranks": {n: ranks_by_scen[n][aid] for n in weights},
                       "flags": flags,
                       "capital_context": {"npias_need_usd": n_ and {"id": n_.id, "value": _round(n_.value)},
                                           "grants_awarded_fy21_25_usd": gr and {"id": gr.id, "value": _round(gr.value)}}})
+        findings += [x.brief() for x in cfs]
         findings.append(f.brief())
     return {"op": "screen", "model_version": cfg["model_version"], "scenario": scen_name, "disclaimer": cfg["disclaimer"],
             "stage": "A: passenger growth opportunity (not terminal suitability, not project economics)",

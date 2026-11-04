@@ -69,6 +69,10 @@ called it a "terminal-expansion screen", which overclaimed.
   * `AIRFIELD_BINDING` / `AIRFIELD_HEADROOM_IMC`: scheduled peak against the highest primary- or secondary-verified instrument-conditions rate, in at least 5% of operating hours. The rate must be a strict number or range in operations/hour. Free text is never mined for numbers.
   * `AIRFIELD_UNKNOWN`: no usable verified rate.
   * `CARRIER_CONCENTRATION`: the largest carrier holds more than 50% of seats.
+* **Explaining a score:**
+  * Every airport's score is split into one *calculated* finding per factor (weight × anchored points), so each answer shows `score = Σ contributions`, and each contribution links to its input finding and source file.
+  * The ranking claim names the largest contributor and the rank range across scenarios. Code writes both.
+  * Every answer that cites a screen score carries a **"How the score is calculated"** section. It is generated from `config/screening.toml`, never written by the model, and covers purpose, factors, weights, anchors, eligibility, missing-data rule, ties, scenarios and flags.
 * **Robustness:**
   * Each airport's rank is reported under four weight scenarios: base, equal, demand-only and momentum-heavy, with the maximum rank shift.
   * Gaps under 3 points are reported as ties.
@@ -87,6 +91,7 @@ called it a "terminal-expansion screen", which overclaimed.
 | Arithmetic between results | `derive` tool | Recorded as a new finding with inputs. |
 | Writing the explanation | LLM | Placeholders only. Every assertion is a typed claim. Code verifies comparison directions and compatibility, writes ranks, requires competing explanations for causal stories, and rejects financial claims (no economics model). |
 | Assumptions and corrections | LLM proposes; code enforces | `update_memory` with `binds`. Dependent findings go stale and cannot be cited. |
+| Labelling what kind of knowledge a statement is | deterministic | Claim tags come from claim type and evidence class: Measured, Calculated, Forecast (FAA), Comparison or Ranking (computed), Interpretation, Hypothesis, External source. Values that are not established are listed under Limitations with the reason, never shown as facts. |
 | Charts | deterministic | ChartSpec (findings + type + validated title) → Vega-Lite. |
 | Memory updates | deterministic + validated tool | State is updated from tool calls. `update_memory` records assumptions and corrections; summaries are number-free. |
 | Web context | LLM chooses pages; code verifies quotes | |
