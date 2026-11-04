@@ -1,6 +1,6 @@
 """Conversation memory & context management.
 
-Layers (see docs/08-memory-and-context.md):
+Layers (see ARCHITECTURE.md, "Agent orchestration"):
   1. Transcript      — every message of every turn, append-only (SQLite). Never summarised away, never rewritten.
   2. Evidence        — findings F# with full provenance, persisted per conversation; ids are stable forever.
                        The ONLY source of numbers. Summaries and state may *reference* F#, never restate values.
@@ -313,7 +313,7 @@ def summary_is_safe(text: str) -> bool:
 
 def mask_numbers(text: str) -> str:
     """Replace every quantity (digits, number words, Unicode numerals) with '#'. Used wherever user text is copied
-    into memory, so memory can never become a source of numbers (Grok product review #5/#6)."""
+    into memory, so memory can never become a source of numbers (review finding)."""
     from airport_analytics.render import ALLOWED_WORD_USES, NUMBER_WORDS
     keep: list[str] = []
 

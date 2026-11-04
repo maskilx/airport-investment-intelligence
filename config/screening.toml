@@ -1,4 +1,4 @@
-# Passenger Growth Opportunity Screen: stage A of the three-stage method (docs/10 §4; history in docs/04 §5).
+# Passenger Growth Opportunity Screen: stage A of the three-stage method (ARCHITECTURE.md, "Scoring methodology").
 # Frozen, versioned model definition. It ranks forecast and realized passenger growth and market income.
 # It does NOT establish terminal need (stage B) or project returns (stage C), and it is not a valuation.
 model_version = "1.0"

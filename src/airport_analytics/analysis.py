@@ -1,6 +1,6 @@
 """Analysis specs -> deterministic operators -> Findings.
 
-A spec is a small JSON object (see docs/05-analytics-architecture.md §4). Operators never invent
+A spec is a small JSON object (see ARCHITECTURE.md, "Agent orchestration"). Operators never invent
 values: every number they emit is either a metric evaluated by the engine or a deterministic function
 of such findings, and is registered in the EvidenceStore with its inputs.
 """
@@ -16,7 +16,7 @@ from typing import Any
 from airport_data.config import REPO_ROOT
 
 from .engine import Engine, MetricRef
-from .evidence import EvidenceStore, Finding, InsufficientData, InvalidSpec, NotApplicable, file_hash
+from .evidence import EvidenceStore, Finding, InsufficientData, InvalidSpec, NotApplicable, OutOfCoverage, file_hash
 from .resolver import Resolver
 from .semantic import CATALOG_VERSION, CAVEATS, METRICS
 
@@ -255,6 +255,7 @@ def run_analysis(spec: dict[str, Any], ctx: Context) -> dict[str, Any]:
     original = copy.deepcopy(spec)                       # replay uses exactly what was asked, not a reconstruction
     n0 = len(ctx.store)
     ids, notes = ctx.resolver.entities(spec.get("entities") or {})
+    check_demo_scope(ctx, ids)
     fn = {"aggregate": _op_aggregate, "rank": _op_rank, "correlate": _op_correlate, "trend": _op_trend,
           "anomaly": _op_anomaly, "distribution": _op_distribution, "forecast_vs_actual": _op_fva,
           "screen": _op_screen}[op]
@@ -272,6 +273,32 @@ def run_analysis(spec: dict[str, Any], ctx: Context) -> dict[str, Any]:
         result["findings"] = result["findings"][:MAX_FINDINGS]
         result["truncated"] = f"{n} findings; first {MAX_FINDINGS} returned (narrow the spec)"
     return result
+
+
+DEMO_NOTE = ("Demo dataset: a subset of the real data covering New England airports, LAX, SNA, SFO and ANC. Values "
+             "for these airports match the full database; other airports need the full data setup.")
+
+
+def demo_scope(engine) -> set[int] | None:
+    """Airport ids covered by a demo database (tools/build_demo_snapshot.py), or None for the full database."""
+    if not hasattr(engine, "_demo_scope"):
+        try:
+            engine._demo_scope = {r[0] for r in engine.con.execute("SELECT airport_id FROM demo_scope").fetchall()}
+        except Exception:                                   # the full database has no demo_scope table
+            engine._demo_scope = None
+    return engine._demo_scope
+
+
+def check_demo_scope(ctx: Context, ids: list[int] | None) -> None:
+    """In the demo dataset, an analysis touching an airport outside the subset would be silently partial: refuse it."""
+    scope = demo_scope(ctx.engine)
+    if scope is None:
+        return
+    outside = sorted(set(ids or []) - scope)
+    if ids is None or outside:
+        codes = [ctx.resolver.by_id.get(i, {}).get("code") or str(i) for i in outside[:12]]
+        raise OutOfCoverage("this airport or group is outside the demo dataset; run ./scripts/bootstrap.sh for the "
+                            "full data", outside=codes, n_outside=len(outside), demo_scope=DEMO_NOTE)
 
 
 def execution_envelope(tool: str, op: str, spec: dict, ids: list[int] | None, ctx: Context) -> dict[str, Any]:

@@ -1,137 +1,187 @@
 # Airport Investment Intelligence
 
-An evidence-first analyst workspace for US airport modernization **screening and due diligence**. You ask in natural language
-("Which New England airports are strong candidates for terminal expansion?", "Compare LA and Santa Ana congestion")
-and get answers in which **every number is a clickable finding**: definition, period, inputs, caveats, the source dataset
-and the exact file it was fetched from. Charts are built from the same findings. Follow-ups reuse earlier findings
-through a structured conversation memory. Web research is optional and kept separate as cited external sources.
+**A conversational analyst that identifies and evaluates US airport expansion opportunities. It combines public FAA
+and BTS aviation data, deterministic analytics and an AI agent that explains every result with its evidence.**
 
-**Design and scoring methodology: [ARCHITECTURE.md](ARCHITECTURE.md).**
+Ask questions such as "Which New England airports are strong candidates for terminal expansion?" or "Compare LA and
+Santa Ana congestion" and get a ranked, sourced answer.
+* Every number is computed by deterministic code and traceable to the public file it came from.
+* The scoring logic is explicit and versioned.
+* The AI's explanation is validated before you see it: comparisons, ranks and claims of cause are checked against the
+  data.
+* Each answer says what it assumes and what the data cannot establish.
+
+![The workspace answering "Which airports in New England are strong candidates for terminal expansion?": a ranked passenger-growth screen in which each score is the sum of its factor contributions, with the evidence panel open on the top score](docs/images/airport-agent-dashboard.png)
+
+<sub>The running application. Each highlighted value opens its evidence: definition, inputs, period and source.
+Shown in offline mode on the bundled demo dataset, where a rule-based planner stands in for the LLM.</sub>
+
+## Capabilities
+
+* **Opportunity screening and ranking.** A passenger growth opportunity score for any region or set of airports:
+  * forecast demand, realized growth and market income;
+  * per-factor contributions, ties, and rank stability across weighting scenarios.
+* **Congestion analysis.** Delay rate, taxi-out, scheduled peak hour, tower operations and system delay, compared
+  over the same window with code-checked directions.
+* **Airport-to-airport comparison** on any catalog metric, with metric, unit and period compatibility enforced.
+* **Flight and traffic analysis.** Long-haul share (all flights, passenger and freight), stage length, seat factor,
+  carrier concentration, trends, and forecast versus actual.
+* **Evidence-backed explanations.** Every value is a finding with its source dataset, period and version.
+  Regulatory limits and capacity records are quoted verbatim from their official source, with a link.
+* **Conversational follow-ups.** "The top two of those", "use 2000 miles instead", "which one should we prioritize?",
+  and corrections such as "I meant Portland, Maine".
+* **Assumptions and uncertainty.** Hypotheses come with competing explanations. Proxies are labelled as proxies, and
+  the system abstains when evidence is insufficient. It never turns an unknown into zero.
+
+## How it works
+
+![Architecture: interface, agent orchestration, tools, deterministic analytics and validation, data foundation](docs/images/architecture.svg)
+
+1. The **agent loop** gives the planner the question and a structured memory of the conversation. The planner is an
+   LLM, or an offline rule-based planner.
+2. The planner calls **typed tools**: resolve places, run analyses, fetch constraint records, compose the answer.
+3. The **deterministic analytics** compile metric definitions to SQL over a DuckDB database built from public data.
+   They return findings with stable ids.
+4. The planner writes the answer with placeholders such as `{F12}` instead of numbers, and with typed claims.
+5. The **validator** rejects literal numbers, unsupported comparisons, misattributed values and financial claims,
+   and sends errors back to the planner. An accepted answer is rendered with charts, evidence and limitations.
+
+| AI (language model) | Deterministic code |
+|---|---|
+| Understands the question, plans the analyses, asks when a question is ambiguous | Resolves places, computes every value, score, rank and chart |
+| Writes the explanation and hypotheses through placeholders | Checks comparisons, ranks and claim types; writes the method section |
+
+Design details and trade-offs are in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+
+## Scoring methodology
+
+The **Passenger Growth Opportunity Screen** ranks where passenger growth is strongest. It is a screening score, not
+an ROI or valuation: capital costs, revenues and lease economics are not in public data.
+
+| Factor | KPI (source) | Normalization | Weight |
+|---|---|---|---|
+| Projected passenger increase | FAA TAF enplanements, FY2035 − FY2025 | log10, 10k → 0 to 10M → 100 | 50% |
+| Realized growth | BTS T-100 passengers, trailing 12 months vs the prior 12 | linear, −5% → 0 to +10% → 100 | 30% |
+| Market strength | Home-CBSA per-capita income (BEA) | linear, $45k → 0 to $110k → 100 | 20% |
+
+* **Score** = Σ weight × points.
+  * Each contribution is shown and links to its input.
+  * Anchors are fixed, so scores compare across regions.
+  * Identical inputs give identical scores.
+* **Eligibility:** at least 500k annual enplanements.
+* **Missing data:** an airport missing any input is listed as not scored, with the reason. There is no imputation.
+* **Ties and robustness:** gaps under 3 points are ties. Ranks are recomputed under four weight scenarios.
+* **Flags** are shown beside the score and never folded into it:
+  * regulatory caps and curfews (conditional limits stay conditional);
+  * airfield capacity against the schedule;
+  * carrier concentration.
+* **Limits of the score:**
+  * It measures demand growth, not capacity pressure, so a high score does not show that the terminal is the
+    constraint.
+  * The absolute forecast increase favours large airports.
+  * The weights are analyst assumptions.
+
+**Unmet demand** is never presented as measured. No public dataset records denied demand. Answers report
+demand-pressure indicators, a labelled hypothesis with competing explanations, and the data that would settle it.
+
+## Data and evidence
+
+| Source | Provides |
+|---|---|
+| [BTS T-100 Segment](https://www.transtats.bts.gov/Tables.asp?QO_VQ=EEE) | Passengers, seats, freight and distance by route, for US and foreign carriers |
+| [BTS Airline On-Time Performance](https://www.transtats.bts.gov/Tables.asp?QO_VQ=EFD) | Flight-level delays, taxi times and schedules (domestic, reporting carriers) |
+| [FAA Terminal Area Forecast](https://www.faa.gov/data_research/aviation/taf) | Forecast enplanements and operations |
+| [FAA passenger boardings (ACAIS)](https://www.faa.gov/airports/planning_capacity/passenger_allcargo_stats/passenger) | Annual enplanements |
+| [FAA ATADS](https://www.aspm.faa.gov/opsnet/sys/airport.asp) | Tower operations |
+| [BEA](https://apps.bea.gov/regional/downloadzip.htm) and [Census CBSA](https://www.census.gov/geographies/reference-files/time-series/demo/metro-micro/delineation-files.html) | Market income and metro-area definitions |
+| [FAA NAS Status](https://nasstatus.faa.gov/api/airport-status-information) | Live delay programs (public API) |
+| Curated records | Passenger caps, curfews, runway geometry and FAA capacity profiles, each with a source URL, verbatim quote and evidence level (e.g. the [SNA settlement agreement](https://www.ocair.com/about/administration/settlement-agreement/key-provisions-settlement-agreement/)) |
+
+* Source files are archived as immutable, checksummed versions and validated before loading.
+* Each value in an answer shows its period and coverage, and links to the dataset page and the original file.
+* Records with weak evidence are labelled *reported* and are never treated as fact.
+* Data terms and third-party licenses: [NOTICE.md](NOTICE.md).
+
+## Example questions
+
+| Question | The answer includes |
+|---|---|
+| Which airports in New England are strong candidates for terminal expansion? | Ranked growth screen with score breakdowns, flags, ties and scenario ranks |
+| Compare LA and Santa Ana airport congestion levels. | Same-window airside indicators; SNA's official passenger and departure limits, quoted with their conditions |
+| What is the percentage of long-haul flights out of Anchorage airport? | All flights, then the passenger and freight splits. Anchorage is a major cargo hub, so they differ several-fold |
+| What is the unmet flight demand in SFO airport and why? | Demand-pressure indicators, a hypothesis with alternatives, and SFO's runway and FAA capacity records |
+
+Verified follow-ups:
+* *Compare congestion at the top two of those* (after the New England screen)
+* *Which one should we prioritize?*
+* *Use 2000 miles instead* (after the Anchorage question)
+* *How busy is Portland?*, which asks PDX or PWM, then *Actually I meant Portland, Maine*
 
 ## Quick start
 
-Permanent location on this Mac: **`~/Downloads/airport-investment-intelligence`**. Data and database are local here.
+**Requirements:** macOS or Linux, Python 3.12 or newer.
+
+### Demo (no API key, no data download)
 
 ```bash
-~/Downloads/airport-investment-intelligence/scripts/start.sh             # open http://127.0.0.1:8765
-~/Downloads/airport-investment-intelligence/scripts/start.sh --restart   # after changing mode or key
-~/Downloads/airport-investment-intelligence/scripts/start.sh --stop
+git clone https://github.com/maskilx/airport-investment-intelligence.git
+cd airport-investment-intelligence
+./scripts/demo.sh
 ```
-The script works from any directory. The banner prints the mode (OFFLINE or GEMINI), the database build and the URL.
-If the app is already running, it prints where instead of starting a second copy. It refuses to start, with a clear
-reason, if the database is missing or the Gemini configuration is invalid. It never silently falls back to offline.
 
-**New machine (fresh clone):** `./scripts/bootstrap.sh` creates `.venv`, installs dependencies, creates `.env` from
-`.env.example`, downloads the public data (~500 MB) and builds the database. Then run `./scripts/start.sh`.
-The aviation data is **not in Git**. `data/raw/`, `data/db/` and `data/app/` are git-ignored and recreated from the
-public publishers using `config/ingest.toml`. A fresh download gets the publishers' current files, so numbers can
-differ; every answer shows its periods and vintages.
+Open **http://127.0.0.1:8765**. The first run took 14 seconds from a clean clone (no pip cache), and it is near-instant after that.
+* The script creates a virtual environment, installs the app and loads the bundled demo dataset (`demo/snapshot`).
+* The dataset is a 42 MB subset of the real data: New England airports, LAX, SNA, SFO and ANC.
+* For those airports, values match the full database. Other airports are reported as outside the demo dataset.
+* The demo runs the offline rule-based planner, labelled in the UI. No model calls are made.
 
-Tests (offline, no model calls): `.venv/bin/python -m pytest`. Seed-archive tests skip when `data/raw/` is absent.
-
-### Offline and Gemini mode
+### Full data
 
 ```bash
-./scripts/configure-gemini-key.sh    # set or replace the key: hidden input, stored in the macOS Keychain
-./scripts/mode.sh gemini             # or: ./scripts/mode.sh offline   |   ./scripts/mode.sh status
+./scripts/bootstrap.sh      # environment, public data download (~500 MB) and database build
+./scripts/start.sh          # http://127.0.0.1:8765
+```
+
+The first download takes about an hour (measured end to end from a clean clone), mostly for the monthly BTS
+exports. If the download is interrupted, running the script again repeats it (unchanged files are de-duplicated).
+
+### Live AI
+
+```bash
+./scripts/configure-gemini-key.sh   # stores the key securely (Keychain on macOS)
+./scripts/mode.sh gemini
 ./scripts/start.sh --restart
 ```
-* **Offline** (default): a rule-based planner. **No model API calls.**
-* **Gemini**: the key is read with hidden input and checked against Google's model catalog (a metadata call, not a
-  generation request). It is stored in the **macOS Keychain** (service `airport-investment-intelligence`) and never in
-  a file, a command line or a log. If the Keychain is unavailable it goes in `.env` with `chmod 600`; `.env` is
-  git-ignored. The helper selects a verified free-tier Flash model.
-  * Requests are capped by `AIRPORT_GEMINI_MAX_REQUESTS` (default 25 per UTC day), counted in `data/app/gemini_usage.jsonl` across restarts.
-  * A 429 or an exhausted budget stops the turn: **no fallback**. Paid models need `AIRPORT_ALLOW_PAID=1` (do not set it).
-* `./scripts/configure-gemini-key.sh --remove` deletes the key and returns to offline.
 
-The header badge shows the active mode, and in Gemini mode the requests used today.
+Providers, request budgets and data operations: **[docs/configuration.md](docs/configuration.md)**.
 
-**Groq** (`openai/gpt-oss-120b`, see [docs/model-provider-review.md](docs/model-provider-review.md)):
-```bash
-./scripts/configure-groq-key.sh      # hidden input; own Keychain item (the Gemini key is untouched)
-./scripts/mode.sh groq && ./scripts/start.sh --restart
-```
-* Free tier: 8k tokens per minute. The app paces requests and caps context per request, so expect minutes per question.
-* On the Developer plan, set `AIRPORT_GROQ_MAX_CONTEXT_TOKENS=60000`.
-* There is no fallback to other providers.
-* Live check: `.venv/bin/python tools/groq_smoke.py`, limited to 5 requests in total.
+## Validation and limitations
 
-### Live voice
-Click the microphone to start a voice conversation. It uses the same conversation, agent, evidence and validation as text chat.
-* **States:** listening, processing, speaking.
-* **Interrupt:** talk over the answer, or press Esc.
-* **Typing** always works.
-* **Speech-to-text:**
-  * Default: the browser's speech recognition (Chrome or Safari; no key).
-  * With Groq: set `AIRPORT_VOICE_STT=groq` in `.env` to use Groq Whisper on the server (needs the Groq key). It has its own daily cap, `AIRPORT_VOICE_MAX_REQUESTS`.
-* **Language:** English. Headphones avoid echo. Design and research: [docs/voice-architecture-review.md](docs/voice-architecture-review.md).
+**Tests.** `.venv/bin/python -m pytest` runs the offline suite; no test calls a model provider.
+* **Deterministic analytics:** golden values, score additivity and reproducibility, the four questions above and
+  their follow-ups, the demo dataset against the full database, and a bit-for-bit rebuild.
+* **Agent behaviour:** scripted model responses cover tool calls, rejected answers and recovery, budgets,
+  cancellation, memory and stale findings, and the streaming API.
+* **Provider adapters:** tested against mocked HTTP endpoints.
 
-### Demo in five steps
-1. Run `./scripts/start.sh` and open http://127.0.0.1:8765. Choose the provider first with `./scripts/mode.sh offline|gemini|groq`.
-2. Ask a factual question: "What is the percentage of long haul flights out of Anchorage airport?", then follow up with "Use 2000 miles instead".
-3. Ask for a comparison: "Compare LA and Santa Ana airport congestion levels."
-4. Ask for a decision: "Which airports in New England are strong candidates for terminal expansion?", then "Which one should we prioritize?"
-5. Inspect the evidence: click any highlighted value to see its definition, inputs, the dataset page and the exact raw file or download form. To try voice, press the microphone and ask "What is the unmet flight demand at SFO and why?"
+**Limitations.**
+* Live LLM planning depends on a configured provider. Its quality is not covered by the offline suite.
+* Profitability and terminal need are not established. They need capital-cost, revenue and terminal-capacity data
+  that public sources do not provide.
+* Unmet demand is inferred from indicators. On-Time covers domestic flights of reporting carriers only, and coverage
+  is shown in each answer.
 
-**One-question live check:** `.venv/bin/python tools/gemini_smoke.py` runs one LAX vs SNA congestion question. It
-allows at most 5 model requests, tracked in a persistent smoke-test counter that is separate from the daily budget.
-
-## Data foundation
-
-A reproducible, offline-buildable aviation data foundation. Original source files are archived as immutable vintages,
-validated, and compiled into a single DuckDB database with full lineage. The analytics engine and the agent only *read* it.
-
-```bash
-.venv/bin/python -m airport_data status       # what is loaded, from which vintage, how fresh
-.venv/bin/python -m airport_data coverage     # do we actually have the data the questions need?
-```
-
-## Layout
+## Repository layout
 
 ```
-src/airport_analytics/  semantic layer, analysis DSL, screening, evidence (findings), grounding renderer, tools
-src/airport_agent/      runtime (agent loop), memory, models (Gemini/scripted), offline planner, charts, web, provenance
-src/airport_app/        FastAPI + SSE server
-web/                    workspace UI (vanilla ES modules, vendored Vega-Lite)
-src/airport_data/
-  sources/        one adapter per source (metadata, fetch, integrity, load, checks) + registry
-  rawstore.py     immutable vintaged archive: raw/<source>/<period>/<vintage>/{files, meta.json}
-  ingest.py       fetch -> integrity check -> raw store; failures logged, never stored
-  validation.py   generic (TableSpec-driven) + source-specific checks; error = blocking
-  build.py        raw archive -> DuckDB (fallback to older valid vintage, atomic swap)
-  derived.sql     conformed layer: airport identity, code decoding, semantic views, freshness
-  coverage.py     declarative coverage requirements (config/coverage.toml)
-  examples.py     runs docs/examples/*.sql validation cases -> docs/examples/RESULTS.md
-data/
-  raw/            ORIGINAL files, all vintages (committed = the seed)
-  manifest/       fetch_events.jsonl + validation reports per vintage (committed)
-  curated/        hand-maintained cited facts (constraints, projects)
-  reference/      static code lists (US states -> Census divisions)
-  db/             built database (git-ignored, always rebuildable)
+src/airport_data/       ingestion: fetch, validate, build DuckDB (one adapter per source)
+src/airport_analytics/  metric catalog, analysis operators, screening, findings, validator, tools
+src/airport_agent/      agent loop, planners, memory, charts, live FAA status
+src/airport_app/        FastAPI server (streaming)
+web/                    chat workspace
+config/                 scoring model, ingest plan, information gaps, coverage rules
+data/curated/           cited constraint records
+demo/snapshot/          demo dataset (Parquet subset of the real data)
+docs/                   configuration, architecture diagram (diagrams/, images/), validation queries
+tests/                  offline test suite
 ```
-
-## Extending
-
-* **New source**: subclass `Source` (see `sources/base.py`), declare `TableSpec`s, register in
-  `sources/__init__.py`, add a line to `config/ingest.toml`. Build, validation, manifest, freshness
-  and lineage need no changes.
-* **New airports / regions / periods**: data-driven — nothing is hard-coded per airport. Regions come
-  from `ref_us_state` (Census region/division) joined through `dim_airport`.
-* **New coverage requirement**: add a block to `config/coverage.toml`.
-* **Downstream layers** (analytics, agent, API, observability): use `airport_data.db.connect()` and
-  the conformed views; every row carries `_source_id/_period/_vintage_id`, joinable to `ingest_manifest`.
-
-## Sources (17 registered: public bulk files, reporting-form exports, curated and reference tables)
-
-BTS T-100 Segment (all carriers) · BTS On-Time (12 months) · BTS lookups · FAA ATADS tower operations ·
-FAA CY enplanements & cargo · FAA TAF 2025 · FAA grant detail reports FY2021–25 · FAA NPIAS 2025–29 ·
-FAA NASR airport records · OurAirports · Census CBSA delineation · BEA county income/population ·
-curated constraints · reference lists (states, county aliases, CT geography overrides).
-
-Docs: [ARCHITECTURE](ARCHITECTURE.md) · [01 research](docs/01-data-foundation.md) · [02 Phase 1](docs/02-phase1-data-foundation.md) (data model,
-validation, identity design) · [03 Phase 1.1](docs/03-phase1.1-data-enrichment.md) (new sources, source
-assessments, data dictionary additions, limitations) · [validation-case results](docs/examples/RESULTS.md) · [04 analytics plan](docs/04-phase2-analytics-plan.md) ·
-[05 analytics architecture](docs/05-analytics-architecture.md) · [06 audit, review, eval](docs/06-phase2-audit-review-log.md) ·
-[07 product plan](docs/07-product-phase-plan.md) · [08 memory and context](docs/08-memory-and-context.md) ·
-[product-layer review](docs/reviews/grok-product-review-2026-11-04.md) · [10 consolidated assessment](docs/10-architecture-assessment.md).

@@ -164,7 +164,7 @@ def test_sql_tool_is_read_only_and_whitelisted(S):
     assert S.ctx.store.get(cell["id"]).epistemic_class == "exploratory"
 
 
-# ---------------------------------------------------------------- regressions from the Grok adversarial review
+# ---------------------------------------------------------------- regressions from an adversarial engine review
 @pytest.mark.parametrize("q", [
     "SELECT count(*) AS n FROM dim_airport, ingest_manifest", "SELECT count(*) AS n FROM /**/ingest_manifest",
     "SELECT count(*) AS n FROM dim_airport, information_schema.tables", "SELECT * FROM duckdb_tables()",

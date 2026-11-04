@@ -1,4 +1,4 @@
-"""Typed claims: does the cited evidence support the KIND of statement being made? (docs/10 §3)
+"""Typed claims: does the cited evidence support the KIND of statement being made? (ARCHITECTURE.md, "Evidence and validation")
 
 render.validate guarantees *traceability*: every number in the answer comes from a finding. This module adds *semantic
 validity*:

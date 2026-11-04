@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 860" width="1500" height="860" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+<path d="M0,0 L10,5 L0,10 z" fill="#55554f"/></marker>
+<style>.t{font-size:15px;font-weight:700}.b{font-size:12.5px;fill:#4a4a44}.band{font-size:11px;font-weight:700;letter-spacing:1.4px;fill:#8a8a82}
+.lbl{font-size:12px;fill:#55554f;font-style:italic}.tag{font-size:10px;font-weight:700;letter-spacing:1px}
+.leg{font-size:12px;fill:#3a3a35}</style></defs>
+<rect width="1500" height="860" fill="#ffffff"/>
+<rect x="22" y="20" width="1384" height="122" rx="12" fill="#fbfbf9" stroke="#dcdcd5"/>
+<text x="38" y="38" class="band">INTERFACE</text>
+<rect x="22" y="166" width="1384" height="122" rx="12" fill="#fbfbf9" stroke="#dcdcd5"/>
+<text x="38" y="184" class="band">AGENT ORCHESTRATION</text>
+<rect x="22" y="328" width="1384" height="130" rx="12" fill="#fbfbf9" stroke="#dcdcd5"/>
+<text x="38" y="346" class="band">TOOLS</text>
+<rect x="22" y="482" width="1384" height="160" rx="12" fill="#fbfbf9" stroke="#dcdcd5"/>
+<text x="38" y="500" class="band">ANALYTICS AND VALIDATION</text>
+<rect x="22" y="666" width="1384" height="172" rx="12" fill="#fbfbf9" stroke="#dcdcd5"/>
+<text x="422" y="684" class="band">DATA FOUNDATION</text>
+<rect x="110" y="55" width="220" height="62" rx="31" fill="#ffffff" stroke="#2a2a26" stroke-width="1.3"/>
+<text x="220.0" y="82.0" text-anchor="middle" class="t" fill="#2a2a26">Analyst</text>
+<text x="220.0" y="100.0" text-anchor="middle" class="b">asks in plain language</text>
+<rect x="410" y="50" width="300" height="72" rx="9" fill="#eef4fd" stroke="#3a6fc0" stroke-width="1.3"/>
+<text x="560.0" y="74.0" text-anchor="middle" class="t" fill="#12305e">Chat workspace</text>
+<text x="560.0" y="92.0" text-anchor="middle" class="b">text chat, live progress,</text>
+<text x="560.0" y="108.0" text-anchor="middle" class="b">evidence inspector</text>
+<rect x="750" y="50" width="300" height="72" rx="9" fill="#eef4fd" stroke="#3a6fc0" stroke-width="1.3"/>
+<text x="900.0" y="74.0" text-anchor="middle" class="t" fill="#12305e">FastAPI server</text>
+<text x="900.0" y="92.0" text-anchor="middle" class="b">conversations, streaming (SSE),</text>
+<text x="900.0" y="108.0" text-anchor="middle" class="b">evidence and provenance API</text>
+<rect x="1090" y="50" width="300" height="72" rx="9" fill="#eef4fd" stroke="#3a6fc0" stroke-width="1.3"/>
+<text x="1240.0" y="74.0" text-anchor="middle" class="t" fill="#12305e">Response rendering</text>
+<text x="1240.0" y="92.0" text-anchor="middle" class="b">answer, Vega-Lite charts,</text>
+<text x="1240.0" y="108.0" text-anchor="middle" class="b">evidence, method, limitations</text>
+<path d="M330,86 L406,86" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M712,74 L746,74" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M748,100 L714,100" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M1088,86 L1054,86" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<rect x="410" y="195" width="300" height="72" rx="9" fill="#f1ebfd" stroke="#6a46c4" stroke-width="2"/>
+<text x="560.0" y="219.0" text-anchor="middle" class="t" fill="#2a1760">Planner</text>
+<text x="560.0" y="237.0" text-anchor="middle" class="b">LLM (Gemini or Groq), or the</text>
+<text x="560.0" y="253.0" text-anchor="middle" class="b">offline rule-based planner</text>
+<text x="700" y="210" text-anchor="end" class="tag" fill="#6a46c4">AI</text>
+<rect x="750" y="195" width="300" height="72" rx="9" fill="#eef4fd" stroke="#3a6fc0" stroke-width="1.3"/>
+<text x="900.0" y="219.0" text-anchor="middle" class="t" fill="#12305e">Agent loop</text>
+<text x="900.0" y="237.0" text-anchor="middle" class="b">step, tool-call and time budgets;</text>
+<text x="900.0" y="253.0" text-anchor="middle" class="b">progress events</text>
+<rect x="1090" y="195" width="300" height="72" rx="9" fill="#eef4fd" stroke="#3a6fc0" stroke-width="1.3"/>
+<text x="1240.0" y="219.0" text-anchor="middle" class="t" fill="#12305e">Conversation memory</text>
+<text x="1240.0" y="237.0" text-anchor="middle" class="b">entities, findings, assumptions;</text>
+<text x="1240.0" y="253.0" text-anchor="middle" class="b">number-free summaries</text>
+<path d="M850,122 L850,191" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M950,191 L950,126" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="958" y="162" text-anchor="start" class="lbl">events</text>
+<path d="M712,224 L746,224" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M748,242 L714,242" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M1052,224 L1086,224" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M1088,242 L1054,242" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="80" y="212" class="band">KEY</text>
+<rect x="80" y="224" width="18" height="14" rx="3" fill="#f1ebfd" stroke="#6a46c4" stroke-width="1.5"/>
+<text x="106" y="235" class="leg">AI (language model)</text>
+<rect x="230" y="224" width="18" height="14" rx="3" fill="#eef4fd" stroke="#3a6fc0" stroke-width="1.5"/>
+<text x="256" y="235" class="leg">Deterministic code</text>
+<rect x="80" y="246" width="18" height="14" rx="3" fill="#e8f5ed" stroke="#2b8754" stroke-width="1.5"/>
+<text x="106" y="257" class="leg">Validation</text>
+<rect x="230" y="246" width="18" height="14" rx="3" fill="#f4f4f1" stroke="#86867e" stroke-width="1.5"/>
+<text x="256" y="257" class="leg">Data</text>
+<path d="M80,276 L110,276" stroke="#55554f" stroke-width="1.6" stroke-dasharray="5 4"/>
+<text x="118" y="280" class="leg">feedback or live path</text>
+<path d="M560.0,267 L560.0,308" fill="none" stroke="#55554f" stroke-width="1.6"/>
+<path d="M220.0,308 L1240.0,308" fill="none" stroke="#55554f" stroke-width="1.6"/>
+<path d="M220.0,308 L220.0,352" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M560.0,308 L560.0,352" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M900.0,308 L900.0,352" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M1240.0,308 L1240.0,352" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="568.0" y="300" class="lbl">tool calls</text>
+<rect x="70" y="356" width="300" height="82" rx="9" fill="#eef4fd" stroke="#3a6fc0" stroke-width="1.3"/>
+<text x="220.0" y="385.0" text-anchor="middle" class="t" fill="#12305e">Resolve places</text>
+<text x="220.0" y="403.0" text-anchor="middle" class="b">airport codes, cities, regions;</text>
+<text x="220.0" y="419.0" text-anchor="middle" class="b">asks when ambiguous</text>
+<rect x="410" y="356" width="300" height="82" rx="9" fill="#eef4fd" stroke="#3a6fc0" stroke-width="1.3"/>
+<text x="560.0" y="385.0" text-anchor="middle" class="t" fill="#12305e">Run analysis</text>
+<text x="560.0" y="403.0" text-anchor="middle" class="b">aggregate, rank, trend, anomaly,</text>
+<text x="560.0" y="419.0" text-anchor="middle" class="b">forecast vs actual, screen</text>
+<rect x="750" y="356" width="300" height="82" rx="9" fill="#eef4fd" stroke="#3a6fc0" stroke-width="1.3"/>
+<text x="900.0" y="385.0" text-anchor="middle" class="t" fill="#12305e">Context</text>
+<text x="900.0" y="403.0" text-anchor="middle" class="b">constraint records, data gaps,</text>
+<text x="900.0" y="419.0" text-anchor="middle" class="b">recall, live FAA status</text>
+<rect x="1090" y="356" width="300" height="82" rx="9" fill="#eef4fd" stroke="#3a6fc0" stroke-width="1.3"/>
+<text x="1240.0" y="385.0" text-anchor="middle" class="t" fill="#12305e">Compose answer</text>
+<text x="1240.0" y="403.0" text-anchor="middle" class="b">{F#} placeholders and</text>
+<text x="1240.0" y="419.0" text-anchor="middle" class="b">typed claims</text>
+<rect x="70" y="512" width="300" height="80" rx="9" fill="#eef4fd" stroke="#3a6fc0" stroke-width="1.3"/>
+<text x="220.0" y="540.0" text-anchor="middle" class="t" fill="#12305e">Semantic layer</text>
+<text x="220.0" y="558.0" text-anchor="middle" class="b">metric definitions compiled to</text>
+<text x="220.0" y="574.0" text-anchor="middle" class="b">ratio-of-sums SQL</text>
+<rect x="410" y="512" width="300" height="80" rx="9" fill="#eef4fd" stroke="#3a6fc0" stroke-width="1.3"/>
+<text x="560.0" y="540.0" text-anchor="middle" class="t" fill="#12305e">Opportunity screen</text>
+<text x="560.0" y="558.0" text-anchor="middle" class="b">weights and fixed anchors</text>
+<text x="560.0" y="574.0" text-anchor="middle" class="b">from config/screening.toml</text>
+<rect x="750" y="512" width="300" height="80" rx="9" fill="#eef4fd" stroke="#3a6fc0" stroke-width="1.3"/>
+<text x="900.0" y="540.0" text-anchor="middle" class="t" fill="#12305e">Findings  F#</text>
+<text x="900.0" y="558.0" text-anchor="middle" class="b">value, period, inputs,</text>
+<text x="900.0" y="574.0" text-anchor="middle" class="b">sources, caveats</text>
+<rect x="1090" y="512" width="300" height="80" rx="9" fill="#e8f5ed" stroke="#2b8754" stroke-width="2"/>
+<text x="1240.0" y="540.0" text-anchor="middle" class="t" fill="#0e3a22">Validator</text>
+<text x="1240.0" y="558.0" text-anchor="middle" class="b">numbers only from findings;</text>
+<text x="1240.0" y="574.0" text-anchor="middle" class="b">relations and ranks checked by code</text>
+<path d="M600.0,438 L600.0,508" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M480.0,438 L310.0,508" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M372,540 L406,540" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M712,552 L746,552" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M220.0,592 C220.0,630 900.0,630 900.0,596" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M1052,552 L1086,552" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M1200.0,438 L1200.0,508" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M1280.0,512 L1280.0,442" fill="none" stroke="#55554f" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+<text x="1290.0" y="470" text-anchor="start" class="lbl">rejected:</text>
+<text x="1290.0" y="484" text-anchor="start" class="lbl">errors to planner</text>
+<path d="M1392,572 L1444,572 L1444,86 L1394,86" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="1460" y="363" class="lbl" text-anchor="middle" transform="rotate(-90 1460 363)">accepted: validated answer</text>
+<rect x="70" y="706" width="300" height="96" rx="9" fill="#f4f4f1" stroke="#86867e" stroke-width="1.3"/>
+<text x="220.0" y="734.0" text-anchor="middle" class="t" fill="#2a2a26">DuckDB</text>
+<text x="220.0" y="752.0" text-anchor="middle" class="b">conformed views over immutable,</text>
+<text x="220.0" y="768.0" text-anchor="middle" class="b">checksummed data versions;</text>
+<text x="220.0" y="784.0" text-anchor="middle" class="b">full data or bundled demo subset</text>
+<rect x="410" y="718" width="300" height="72" rx="9" fill="#f4f4f1" stroke="#86867e" stroke-width="1.3"/>
+<text x="560.0" y="742.0" text-anchor="middle" class="t" fill="#2a2a26">Ingestion</text>
+<text x="560.0" y="760.0" text-anchor="middle" class="b">fetch, checksum, blocking</text>
+<text x="560.0" y="776.0" text-anchor="middle" class="b">validation, atomic build</text>
+<rect x="750" y="692" width="300" height="66" rx="9" fill="#f4f4f1" stroke="#86867e" stroke-width="1.3"/>
+<text x="900.0" y="713.0" text-anchor="middle" class="t" fill="#2a2a26">Public data</text>
+<text x="900.0" y="731.0" text-anchor="middle" class="b">BTS T-100, On-Time; FAA TAF,</text>
+<text x="900.0" y="747.0" text-anchor="middle" class="b">ACAIS, ATADS; BEA, Census</text>
+<rect x="750" y="766" width="300" height="60" rx="9" fill="#f4f4f1" stroke="#86867e" stroke-width="1.3"/>
+<text x="900.0" y="792.0" text-anchor="middle" class="t" fill="#2a2a26">Curated records</text>
+<text x="900.0" y="810.0" text-anchor="middle" class="b">caps, curfews, capacity rates</text>
+<rect x="1090" y="718" width="300" height="72" rx="9" fill="#f4f4f1" stroke="#86867e" stroke-width="1.3" stroke-dasharray="6 4"/>
+<text x="1240.0" y="742.0" text-anchor="middle" class="t" fill="#2a2a26">FAA NAS Status</text>
+<text x="1240.0" y="760.0" text-anchor="middle" class="b">live public API, cited as</text>
+<text x="1240.0" y="776.0" text-anchor="middle" class="b">external evidence</text>
+<path d="M748,725 L714,745" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M748,796 L714,768" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M408,754 L374,754" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<path d="M68,552 L46,552 L46,754 L66,754" fill="none" stroke="#55554f" stroke-width="1.6" marker-end="url(#ah)"/>
+<text x="30" y="650" text-anchor="middle" class="lbl">SQL</text>
+<path d="M1020,438 L1020,462 L1070,462 L1070,754 L1086,754" fill="none" stroke="#55554f" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#ah)"/>
+</svg>

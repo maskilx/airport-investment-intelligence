@@ -258,7 +258,7 @@ def test_recall_tool_finds_older_turns():
 
 # ------------------------------------------------------------------ offline planner end-to-end
 @needs_db
-def test_offline_planner_answers_the_assignment_questions():
+def test_offline_planner_answers_the_four_core_questions():
     from airport_agent.offline import OfflineBackend
     from airport_agent.runtime import Agent
     a = Agent(OfflineBackend())

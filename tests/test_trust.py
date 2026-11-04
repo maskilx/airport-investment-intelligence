@@ -1,4 +1,4 @@
-"""Trust layer (docs/10): execution envelopes and faithful replay, assumption staleness, typed claim validation.
+"""Trust layer (ARCHITECTURE.md, "Evidence and validation"): execution envelopes and faithful replay, assumption staleness, typed claim validation.
 
 Each test encodes a failure mode found by an independent review, not just the happy path.
 """
@@ -35,7 +35,7 @@ def test_every_finding_carries_an_execution_envelope(S):
 
 
 def test_screen_score_replays_as_screen_not_aggregate(S):
-    """Review 2 §6.3: a screen score replayed through a generic aggregate is not a replay."""
+    """Regression: a screen score replayed through a generic aggregate is not a replay."""
     r = run(S, {"op": "screen", "entities": {"group": {"census_division": "New England"}}})
     fid = r["table"][0]["score"]["id"]
     n_before = len(S.ctx.store)
@@ -88,7 +88,7 @@ LH = lambda miles=None: {"op": "aggregate", "entities": {"airports": ["ANC"]}, "
 
 
 def test_bound_assumption_makes_default_threshold_findings_stale_and_uncitable():
-    """Review 2 §6.1: threshold changed from the default to another value; old findings must not support the answer."""
+    """Regression: threshold changed from the default to another value; old findings must not support the answer."""
     from airport_agent.memory import ConversationStore
     from airport_agent.models import ScriptedBackend
     from airport_agent.runtime import Agent
@@ -208,7 +208,7 @@ def errs(S, answer):
     return r.get("errors", []) if r.get("error") else []
 
 
-def test_reviewer_counterexample_guaranteed_profitable_is_rejected_everywhere(S, ev):
+def test_counterexample_guaranteed_profitable_is_rejected_everywhere(S, ev):
     f = ev["sf_sfo"]
     bad = [
         {"headline": "SFO", "body": f"Seat factor {{{f}}}.", "claims": [
@@ -224,7 +224,7 @@ def test_reviewer_counterexample_guaranteed_profitable_is_rejected_everywhere(S,
         assert errs(S, a), a
 
 
-def test_reviewer_counterexample_gates_in_2035_is_rejected(S, ev):
+def test_counterexample_gates_in_2035_is_rejected(S, ev):
     f, taf = ev["sf_sfo"], ev["taf_sfo"]
     e = errs(S, {"headline": "SFO", "body": f"{{{f}}}", "claims": [
         {"kind": "inference", "text": "SFO will need additional gates in 2035.", "support": [f]}]})
@@ -295,7 +295,7 @@ def test_legitimate_answers_still_pass(S, ev):
 
 # ---------------------------------------------------------------- stage 4: runtime hardening
 def test_every_tool_use_is_paired_when_compose_is_not_last():
-    """Grok product review #7: a successful compose_answer followed by another tool_use left it unpaired."""
+    """Regression: a successful compose_answer followed by another tool_use left it unpaired."""
     from airport_agent.models import ScriptedBackend
     from airport_agent.runtime import Agent
     a = Agent(ScriptedBackend([
@@ -372,7 +372,7 @@ def test_gemini_daily_budget_survives_restart(monkeypatch, tmp_path):
 
 
 def test_web_fetch_ignores_environment_proxies():
-    """Grok #10: through an environment proxy the post-connect peer check would see the proxy, not the origin.
+    """Regression: through an environment proxy the post-connect peer check would see the proxy, not the origin.
     (Source-level check: exercising it for real needs a proxy and a rebinding DNS name.)"""
     from airport_agent import web
     assert "urllib.request.ProxyHandler({})" in open(web.__file__).read()
@@ -380,15 +380,19 @@ def test_web_fetch_ignores_environment_proxies():
 
 # ---------------------------------------------------------------- stage 5: constraint records and stage-A framing
 def test_constraints_respect_effective_dates_and_evidence_levels(S):
-    """Review 2 §6.4: an expired cap was combined with the current one; snippet evidence counted as verified."""
+    """Regression: an expired cap was combined with the current one; snippet evidence counted as verified."""
     r = run(S, {"op": "screen", "entities": {"airports": ["SNA", "SFO", "LAX", "SEA"]},
                 "options": {"as_of": "2026-11-04"}})
     sna = next(t for t in r["table"] if t["airport"] == "SNA")
     flags = sna["flags"]
     assert not any("Phase 2" in str(f.get("detail")) for f in flags)                 # ended 2025-12-31
     assert any("Phase 3" in str(f.get("detail")) for f in flags)
-    assert all(f["flag"] == "REPORTED_CONSTRAINT_UNVERIFIED" for f in flags
-               if f["flag"] in ("REGULATORY_CAP", "CURFEW", "REPORTED_CONSTRAINT_UNVERIFIED"))   # snippet-only evidence
+    # passenger/departure limits: official airport source (primary) -> REGULATORY_CAP; the Phase 3 passenger limit is
+    # conditional (two values), never one unconditional fact. Curfews: snippet only -> reported, not a flag of fact.
+    caps = [f for f in flags if f["flag"] == "REGULATORY_CAP"]
+    assert caps and all("primary" in f["class"] for f in caps)
+    assert [f for f in caps if "Phase 3" in f["detail"]] and all(f["conditional"] for f in caps if "Phase 3" in f["detail"])
+    assert all(f["flag"] == "REPORTED_CONSTRAINT_UNVERIFIED" for f in flags if "Curfew" in str(f.get("detail")))
     assert any(e["airport"] == "SNA" and "Phase 2" in e["item"] for e in r["constraints_not_in_effect"])
     # on a date inside Phase 2, Phase 2 is the one in effect
     r2 = run(S, {"op": "screen", "entities": {"airports": ["SNA", "SFO"]}, "options": {"as_of": "2024-06-01"}})
@@ -789,6 +793,9 @@ def test_groq_smoke_script_never_exceeds_five_requests(monkeypatch, tmp_path):
     monkeypatch.setattr(urllib.request, "urlopen", fake)
     _groq_env(monkeypatch, tmp_path)
     monkeypatch.setenv("AIRPORT_GROQ_SMOKE_COUNTER", str(tmp_path / "counter.json"))
+    # This test is about the request ceiling, not the free-tier context cap: with the default 8k cap, the fixed
+    # system prompt + tool schemas (~6.2k tokens) leave too little room for five catalog results (docs/configuration.md, Groq).
+    monkeypatch.setenv("AIRPORT_GROQ_MAX_CONTEXT_TOKENS", "16000")
     spec = importlib.util.spec_from_file_location("groq_smoke", str(get_paths().root.parent / "tools" / "groq_smoke.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

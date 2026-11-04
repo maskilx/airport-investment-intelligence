@@ -1,8 +1,0 @@
-{"tool": "describe_catalog", "input": {}, "error": null}
-{"tool": "resolve_entities", "input": {"terms": ["Los Angeles International", "Santa Ana John Wayne"]}, "error": null}
-{"tool": "resolve_entities", "input": {"terms": ["SNA", "John Wayne", "Santa Ana"]}, "error": null}
-{"tool": "describe_catalog", "input": {"metric": "dep_delay15_rate"}, "error": null}
-{"tool": "describe_catalog", "input": {"metric": "avg_taxi_out_min"}, "error": null}
-{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metric": "dep_delay15_rate", "airports": ["LAX", "SNA"], "window": {"cy": 2025}}}, "error": "invalid_spec"}
-{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metrics": ["dep_delay15_rate", "avg_taxi_out_min"], "airports": ["LAX", "SNA"], "window": {"cy": 2025}}}, "error": "invalid_spec"}
-{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metrics": ["dep_delay15_rate", "avg_taxi_out_min"], "entities": {"airports": ["LAX", "SNA"]}, "window": {"cy": 2025}}}, "error": "out_of_coverage"}

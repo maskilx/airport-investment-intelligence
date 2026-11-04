@@ -35,3 +35,9 @@ eval/runs/**/agent_stdout.txt
 eval/runs/gemini_smoke/
 eval/runs/groq_smoke/
 eval/runs/link_audit.json
+
+# --- Demo database and conversations (rebuilt from demo/snapshot by scripts/demo.sh)
+demo/data/
+
+# --- Private notes (never published)
+.private/

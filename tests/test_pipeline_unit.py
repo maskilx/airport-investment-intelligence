@@ -162,7 +162,7 @@ def test_month_periods_cross_year():
     assert month_periods("2025-11", "2026-02") == ["2025-11", "2025-12", "2026-01", "2026-02"]
 
 
-# ---------------------------------------------------------------- regressions from the Grok code review
+# ---------------------------------------------------------------- regressions from a data-pipeline code review
 def test_latest_history_mode_loads_only_newest_snapshot(tmp_paths, fake):
     fake.history_mode = "latest"          # e.g. lookups / OurAirports / TAF releases
     store, log = _ctx(tmp_paths)

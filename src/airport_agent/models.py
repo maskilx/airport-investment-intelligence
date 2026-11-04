@@ -241,7 +241,7 @@ class GeminiBackend:
 
 # ------------------------------------------------------------------ Anthropic (kept from Phase 2; opt-in only, paid)
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-# Tool-capable chat models available outside Groq Enterprise (docs/model-provider-review.md). Others are refused.
+# Tool-capable chat models available outside Groq Enterprise (docs/configuration.md). Others are refused.
 GROQ_MODELS = ("openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b")
 
 

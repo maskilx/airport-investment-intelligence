@@ -1,4 +1,4 @@
-"""Passenger Growth Opportunity Screen — stage A of the three-stage method (config/screening.toml, docs/10 §4).
+"""Passenger Growth Opportunity Screen — stage A of the three-stage method (config/screening.toml; ARCHITECTURE.md).
 
 It ranks where forecast and realized passenger growth and market income are strongest. It does NOT establish that a
 terminal is the binding constraint (stage B: intervention suitability) or that a project pays (stage C: economics).
@@ -26,7 +26,7 @@ def _scale(x: float, comp: dict) -> float:
     return max(0.0, min(1.0, (x - lo) / (hi - lo))) * 100
 
 
-# Evidence ladder for curated constraint records (docs/10 §1.3). Only primary/secondary evidence drives a flag;
+# Evidence ladder for curated constraint records (ARCHITECTURE.md, "Scoring methodology"). Only primary/secondary evidence drives a flag;
 # weaker records are shown as reported-but-unverified, never hidden and never treated as fact.
 EVIDENCE_LEVELS = ("primary", "secondary", "snippet", "unverified")
 FLAG_LEVELS = ("primary", "secondary")
@@ -65,9 +65,9 @@ def _broken_links() -> dict[str, str]:
 def constraint_records(ctx, as_of: str) -> list[dict]:
     """Curated constraints with evidence level and effectiveness at `as_of` (ISO date)."""
     rows = ctx.engine.con.execute("""SELECT airport_iata, category, item, value, unit, effective_from, effective_to,
-        status, verification, source_url FROM curated_constraint""").fetchall()
+        status, verification, source_url, source_title, evidence_quote, retrieved_at FROM curated_constraint""").fetchall()
     out = []
-    for code, cat, item, val, unit, ef, et, status, ver, url in rows:
+    for code, cat, item, val, unit, ef, et, status, ver, url, title, quote, retrieved in rows:
         ef_s, et_s = str(ef or "").strip(), str(et or "").strip()
         lvl = evidence_level(ver)
         # dates decide (the status column describes the record today, not at as_of); status only fills a missing end
@@ -81,6 +81,10 @@ def constraint_records(ctx, as_of: str) -> list[dict]:
             eff = "in_effect"
         out.append({"airport": code, "category": cat, "item": item, "value": val, "unit": unit, "effective_from": ef_s,
                     "effective_to": et_s, "status": status, "evidence": lvl, "effective": eff, "source_url": url,
+                    # a conditional record (e.g. SNA's 2026-2030 passenger limit: one of two values, depending on
+                    # 2021-2025 traffic and mitigation) is never a single unconditional fact
+                    "conditional": (status or "").strip().lower() == "conditional",
+                    "source_title": title or "", "evidence_quote": quote or "", "retrieved_at": str(retrieved or ""),
                     "source_link": _broken_links().get(url, "ok (not re-checked)" if url else "none")})
     return out
 
@@ -245,7 +249,9 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
             strong = r["evidence"] in FLAG_LEVELS
             flags.append({"flag": ("REGULATORY_CAP" if r["category"] == "regulatory_cap" else "CURFEW") if strong
                           else "REPORTED_CONSTRAINT_UNVERIFIED",
-                          "detail": f"{r['item']} (effective {r['effective_from'] or 'n/a'} to {r['effective_to'] or 'open'})",
+                          "detail": f"{r['item']} (effective {r['effective_from'] or 'n/a'} to {r['effective_to'] or 'open'})"
+                                    + ("; conditional: applies only if its stated condition holds" if r["conditional"] else ""),
+                          "conditional": r["conditional"],
                           "evidence": r["evidence"], "source_url": r["source_url"], "source_link": r["source_link"],
                           "class": f"observed (curated, {r['evidence']} evidence)" if strong else "not_established"})
         if code in imc:
@@ -261,9 +267,17 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
                                f"Capacity rate: FAA Airport Capacity Profile (verified), {imc[code]:g} ops/h."])
             findings.append(fh.brief())
             thr = float(cfg["flags"].get("airfield_binding_hour_share", 0.05))
-            flags.append({"flag": "AIRFIELD_BINDING" if share is not None and share >= thr else "AIRFIELD_HEADROOM_IMC",
-                          "threshold_hour_share": thr,
-                          "detail": {"id": fh.id, "value": _round(share)}, "class": "calculated (lower bound)"})
+            # One-sided by construction: the schedule is a LOWER bound (reporting carriers, domestic) and the rate is
+            # the BEST verified IMC configuration, so exceeding the threshold shows binding, but staying below it does
+            # not show headroom (the true share can be higher). Never report "headroom" from a lower bound.
+            if share is not None and share >= thr:
+                flags.append({"flag": "AIRFIELD_BINDING", "threshold_hour_share": thr,
+                              "detail": {"id": fh.id, "value": _round(share)}, "class": "calculated (lower bound)"})
+            else:
+                flags.append({"flag": "AIRFIELD_NOT_SHOWN_BINDING", "threshold_hour_share": thr,
+                              "detail": {"id": fh.id, "value": _round(share)}, "class": "not_established",
+                              "note": "lower-bound schedule vs best-configuration IMC rate: binding is not shown, "
+                                      "headroom is not established"})
         else:
             flags.append({"flag": "AIRFIELD_UNKNOWN", "detail": "no verified FAA capacity rate", "class": "not_established"})
         cf = conc.get(aid)

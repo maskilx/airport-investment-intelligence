@@ -1,8 +1,0 @@
-{"tool": "describe_catalog", "input": {}, "error": null}
-{"tool": "describe_catalog", "input": {"metric": "taf_enplanements"}, "error": null}
-{"tool": "describe_catalog", "input": {"metric": "passengers"}, "error": null}
-{"tool": "describe_catalog", "input": {"metric": "acais_enplanements"}, "error": null}
-{"tool": "resolve_entities", "input": {"terms": ["SFO"]}, "error": null}
-{"tool": "run_analysis", "input": {"spec": {"op": "forecast_vs_actual", "entities": {"airports": ["SFO"]}, "options": {"fy": 2024, "quantity": "enplanements"}}}, "error": "not_applicable"}
-{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metrics": ["taf_enplanements"], "entities": {"airports": ["SFO"]}, "window": {"fy": 2024}, "group_by": ["record_type"]}}, "error": null}
-{"tool": "run_analysis", "input": {"spec": {"op": "aggregate", "metrics": ["passengers"], "entities": {"airports": ["SFO"]}, "window": {"fy": 2024}}}, "error": "out_of_coverage"}

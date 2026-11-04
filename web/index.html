@@ -50,23 +50,12 @@
     </header>
     <section class="turns" id="turns" aria-live="polite"></section>
     <footer class="composer">
-      <div class="voicebar" id="voiceBar" hidden data-state="off" role="status" aria-live="polite">
-        <span class="vdot" aria-hidden="true"></span>
-        <span class="vstate" id="voiceState">Voice off</span>
-        <span class="vtext" id="voiceText"></span>
-        <button type="button" class="vbtn" id="voiceStopAudio" title="Stop speaking (Esc)">Stop audio</button>
-        <button type="button" class="vbtn" id="voiceEnd" title="End the voice conversation">End voice</button>
-      </div>
       <form id="form">
-        <button type="button" class="mic" id="micBtn" title="Start a live voice conversation (same agent, same evidence)" aria-label="Live voice conversation">
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="9" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M3 8a5 5 0 0 0 10 0M8 13v2" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
-        </button>
         <textarea id="input" rows="1" placeholder="Ask about airports, regions, congestion, growth, forecasts, investment screens…" aria-label="Question"></textarea>
         <button class="send" id="sendBtn" type="submit">Ask</button>
       </form>
       <div class="hint">
         <span>Every number links to its finding · Enter to send, Shift+Enter for a new line</span>
-        <label><input type="checkbox" id="speakToggle"> read answers aloud</label>
       </div>
     </footer>
   </main>

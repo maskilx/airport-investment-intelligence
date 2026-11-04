@@ -1,1 +1,0 @@
-{"model_requested": "gemini-3.8-flash-medium", "effort": "medium", "latency_s": 28.1, "status": "SUCCESS", "turns": 1, "usage": {"input_tokens": 73914, "output_tokens": 1173, "thinking_tokens": 853, "cache_read_tokens": 0, "total_tokens": 75087}}

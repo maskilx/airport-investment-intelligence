@@ -1,8 +1,0 @@
-ambiguous      4/5
-known          10/10
-multi_step     12/12
-unanswerable   2/2
-unseen         19/20
-TOTAL 47 / 49
- FAIL q019 unseen none {'finished': False, 'grounded': False}
- FAIL q049 ambiguous none {'finished': False, 'grounded': False, 'clarify_or_assume': False, 'assumption': False}

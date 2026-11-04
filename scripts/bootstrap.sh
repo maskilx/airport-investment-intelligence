@@ -14,14 +14,19 @@ echo "== installing package (app + dev extras)"
 .venv/bin/pip install -q -e ".[app,dev]"
 [ -f .env ] || { cp .env.example .env; echo "== created .env from .env.example (offline mode)"; }
 
-if [ ! -d data/raw/bts_t100_segment ]; then
-  echo "== downloading public source files (BTS, FAA, Census, BEA, OurAirports); ~500 MB, can take 20-40 min"
+# Download unless a previous download completed (marker) or a database already exists. An interrupted download
+# leaves no marker, so a re-run fetches again (unchanged files are de-duplicated by checksum, never duplicated).
+if [ ! -f data/raw/.fetch-complete ] && { [ ! -d data/raw/bts_t100_segment ] || [ ! -f data/db/airport.duckdb ]; }; then
+  echo "== downloading public source files (BTS, FAA, Census, BEA, OurAirports); ~500 MB, can take 45-70 min"
   echo "   plan: config/ingest.toml. Every file is checksummed and stored as an immutable vintage under data/raw/."
   .venv/bin/python -m airport_data fetch --all-default
+  touch data/raw/.fetch-complete
 fi
 if [ ! -f data/db/airport.duckdb ] || [ "${1:-}" = "--rebuild" ]; then
   echo "== building data/db/airport.duckdb from data/raw (validation is blocking)"
-  .venv/bin/python -m airport_data build
+  # A file that fails validation is not loaded and the build reports the uncovered period; the database is still built
+  # from every valid file, so this is a warning for setup, not a failure.
+  .venv/bin/python -m airport_data build || echo "WARNING: some downloaded files failed validation and were not loaded (listed above)."
 fi
 .venv/bin/python -m airport_data status | tail -n 25
 echo

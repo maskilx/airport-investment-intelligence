@@ -6,7 +6,7 @@
 
 * hidden input (getpass): nothing typed or pasted is shown;
 * checks the key with GET /openai/v1/models (a catalog lookup, NOT a generation request) and confirms which supported
-  tool-calling models (docs/model-provider-review.md) the account can use;
+  tool-calling models (docs/configuration.md) the account can use;
 * stores it in the macOS Keychain under its own service 'airport-investment-intelligence-groq' via `security -i`
   stdin, so it never appears in argv, process lists, shell history or logs; .env (chmod 600) only as a fallback;
 * writes only non-secret settings to .env, preserving every other line (Gemini settings included).

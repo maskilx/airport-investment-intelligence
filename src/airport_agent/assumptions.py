@@ -4,7 +4,7 @@ An assumption (A#) is analyst intent. It may carry a structured *binding* that c
     {"metric": "long_haul_share", "param": "min_miles", "value": 2400}
     {"screen_option": "scenario", "value": "demand_only"}   (or "min_enplanements")
 
-Rules (deterministic; docs/10 §3):
+Rules (deterministic; ARCHITECTURE.md, "Evidence and validation"):
   1. Every finding records the A# ids active when it was produced (finding.assumptions).
   2. A bound assumption invalidates every *current* finding that depends on the bound parameter with a different
      value — whenever it was computed (including findings that used the default before the analyst said otherwise,

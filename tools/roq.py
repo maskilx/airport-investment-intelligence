@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only SQL over the built DuckDB, for reviewers/auditors.
+"""Read-only SQL over the built DuckDB, for auditing.
 
 usage: roq.py "SELECT ..."            (one statement; SELECT/WITH/DESCRIBE/SHOW/SUMMARIZE/PRAGMA table_info only)
        roq.py --raw-file <published-path-inside-data/raw>   prints first 40 lines of a raw CSV/TXT member listing

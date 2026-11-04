@@ -1,4 +1,4 @@
-"""Terminal access to the agent tools (used by reviewers, evals and external agents).
+"""Terminal access to the agent tools (used by evaluations, audits and external agents).
 
     python -m airport_analytics tools                                  # list tool schemas
     python -m airport_analytics call <tool> '<json args>' [--session S]  # call a tool; S persists findings between calls

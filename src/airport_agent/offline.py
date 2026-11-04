@@ -20,7 +20,7 @@ from airport_analytics.information import match_concepts
 from .models import ModelResponse, Usage
 
 LABEL = "Offline demo planner (rule-based, no LLM)"
-STOP = {"What", "Which", "Who", "How", "Why", "When", "Where", "Compare", "Show", "Tell", "Give", "List", "Rank", "Is",
+STOP = {"ROI", "IRR", "NPV", "EBITDA", "CPE", "MAP", "What", "Which", "Who", "How", "Why", "When", "Where", "Compare", "Show", "Tell", "Give", "List", "Rank", "Is",
         "Are", "Does", "Do", "Did", "Can", "Could", "And", "The", "A", "An", "In", "Of", "For", "At", "Out", "From", "Me",
         "Please", "Actually", "Also", "Now", "Then", "Same", "That", "Those", "It", "Its", "Their", "Them", "What's",
         "I", "We", "Let", "Okay", "Ok", "Yes", "No", "Thanks", "Airport", "Airports", "US", "FAA", "BTS", "TAF", "T12",
@@ -238,7 +238,7 @@ class OfflineBackend:
         if assess and intent not in ("screen", "congestion") and not analyses:
             # a judgment needs an objective: different objectives use different criteria and can flip the answer
             return _text(f"Better for what? For {', '.join(airports)} I can assess passenger growth opportunity "
-                         "(investment / expansion screen) or airside congestion (delay, taxi-out, peak-hour pressure). "
+                         "(the stage A screen; not terminal need or return) or airside congestion (delay, taxi-out, peak-hour pressure). "
                          "Which objective should the assessment use?")
         if not analyses:
             lh = int(thr.group(1)) if thr else (int(bound[-1][1]) if bound else None)
@@ -249,6 +249,8 @@ class OfflineBackend:
                 return _text(f"[{LABEL}] I can run screening, congestion, long-haul, unmet-demand indicators, trends and "
                              "named metrics offline. This question needs the LLM backend (set AIRPORT_MODEL=gemini).")
             calls = [_tu("run_analysis", {"spec": s}) for s in specs]
+            if intent in ("congestion", "unmet") and airports:     # caps, curfews, runway geometry, FAA capacity rates
+                calls.append(_tu("airport_constraints", {"airports": airports}))
             if intent == "congestion" and LIVE.search(q) and airports:      # "now / today": add the live FAA status
                 calls.append(_tu("live_airport_status", {"airports": airports}))
             return _calls(calls)
@@ -258,7 +260,10 @@ class OfflineBackend:
             return _text(f"[{LABEL}] The answer draft did not pass grounding validation"
                          f"{' (details in the trace)' if errs else ''}; please rephrase.")
         ans = self._compose(intent, q, analyses, airports, region_label)
-        live = [r for u, r in done if u["name"] == "live_airport_status" and isinstance(r, dict) and r.get("id")]
+        cons = [r for u, r in done if u["name"] == "airport_constraints" and isinstance(r, dict) and "records" in r]
+        if cons and intent in ("congestion", "unmet") and ans.get("claims"):
+            self._add_constraint_context(ans, cons[-1], intent)
+        live =[r for u, r in done if u["name"] == "live_airport_status" and isinstance(r, dict) and r.get("id")]
         for lv in live[:1]:
             for line in [x for x in lv.get("lines", [])[1:] if x.split(":")[0] in airports][:4]:
                 ans.setdefault("claims", []).append({"kind": "external", "source": lv["id"], "quote": line,
@@ -268,7 +273,101 @@ class OfflineBackend:
                 "dataset, and it does not change the historical indicators above.")
         if assumed:
             ans.setdefault("assumptions", []).insert(0, f"Assumed from context (say so if wrong): {assumed}.")
+        if gap and intent != "gap":            # e.g. "ROI of expanding BOS": answer what is measurable, name what is not
+            info = check_information(q)
+            ans.setdefault("limitations", []).append(
+                f"{info['label'].capitalize()} is not in the internal datasets; not established: "
+                f"{info['cannot_establish'].rstrip('.')}. The values above measure passenger growth opportunity only.")
         return _calls([_tu("compose_answer", {"answer": ans})])
+
+    @staticmethod
+    def _add_constraint_context(ans: dict, cons: dict, intent: str) -> None:
+        """Curated restrictions and capacity records, in words with their evidence level (never as numbers): the
+        airside indicators alone miss, for example, a regulatory passenger cap and a curfew at SNA."""
+        from airport_analytics.render import NUMBER_WORDS
+
+        def words(s: str) -> str:            # record names carry digits and number words (runway ids, phases, MAP)
+            s = NUMBER_WORDS.sub("", re.sub(r"[^\s,;]*\d[^\s,;]*", "", s or ""))
+            s = re.sub(r"\(\s*\)", "", re.sub(r"\s{2,}", " ", s)).strip(" ,;-")
+            return re.sub(r"\s+(?:on|at|of|for|to)$", "", s, flags=re.I)
+        evid = {"primary": "verified, primary source", "secondary": "verified, secondary source",
+                "snippet": "reported; checked only against a search snippet", "unverified": "reported; unverified"}
+        cats = {"regulatory_cap": "regulatory cap", "curfew": "curfew", "runway_geometry": "runway geometry",
+                "terminal_project": "terminal project", "other": "other record"}
+        lines, restricted, ext, weak, cond, has_limit = [], [], [], False, False, False
+        for ap in cons.get("airports", []):
+            recs = [r for r in cons.get("records", []) if r["airport"] == ap and r["effective"] == "in_effect"]
+            parts, rates, seen = [], [r for r in recs if r["category"] == "capacity_rate"], set()
+            for r in recs:
+                if r["category"] == "capacity_rate" or r["category"] not in cats:
+                    continue
+                unit = (r["unit"] or "").lower()
+                if r["category"] == "regulatory_cap" and "passenger" in unit and "departure" not in unit:
+                    name = "Annual passenger limit (MAP), an official regulatory limit"
+                elif r["category"] == "regulatory_cap" and "departure" in unit:
+                    name = "Average daily departure limit for passenger service, an official regulatory limit"
+                else:
+                    name = words(r["item"])
+                if r["category"] == "regulatory_cap":
+                    has_limit = True
+                base_name = name
+                conditional = any(x.get("conditional") for x in recs if x["category"] == r["category"]
+                                  and (x["unit"] or "") == (r["unit"] or ""))
+                if conditional:
+                    cond = True
+                    name += ("; conditional: the base limit or an increased limit applies, depending on the traffic served in the "
+                             "previous phase and on mitigation measures")
+                if r.get("external_id") and (r["category"] in ("regulatory_cap", "runway_geometry")):
+                    ext.append({"kind": "external", "source": r["external_id"], "quote": r["evidence_quote"],
+                                "text": f"{ap}, official record ({evid[r['evidence']]}): {base_name}"
+                                        + (" (conditional limit)" if r.get("conditional") else "")})
+                if r["evidence"] not in ("primary", "secondary"):
+                    weak = True
+                key = (name, r["category"], r["evidence"])
+                if key in seen:                       # conditional alternatives of one limit: listed once in words
+                    continue
+                seen.add(key)
+                parts.append(f"{name}, {cats[r['category']]} ({evid[r['evidence']]})")
+                if r["category"] in ("regulatory_cap", "curfew"):
+                    restricted.append(ap)
+            if rates:
+                conds = [c for c in ("visual", "marginal", "instrument") if any(c in (r["item"] or "").lower() for r in rates)]
+                best = min(("primary", "secondary", "snippet", "unverified").index(r["evidence"]) for r in rates)
+                parts.append(f"FAA modelled hourly airfield capacity rates for {', '.join(conds) or 'several'} conditions "
+                             f"({evid[('primary', 'secondary', 'snippet', 'unverified')[best]]})")
+                for r in rates:
+                    if r.get("external_id") and "instrument" in (r["item"] or "").lower():
+                        ext.append({"kind": "external", "source": r["external_id"], "quote": r["evidence_quote"],
+                                    "text": f"{ap}, FAA capacity profile ({evid[r['evidence']]}): instrument conditions"})
+            lines.append(f"- **{ap}**: " + ("; ".join(parts) if parts else "no curated restriction or capacity record"))
+        if not lines:
+            return
+        ans["body"] = (ans.get("body") or "") + "\n\n**Recorded operating restrictions and capacity context** (curated " \
+            "records in effect today; context, not part of the indicators above; official values are quoted verbatim " \
+            "with their source under the findings):\n\n" + "\n".join(lines)
+        ans.setdefault("claims", []).extend(ext[:6])
+        if has_limit:
+            ans.setdefault("assumptions", []).append(
+                "A regulatory limit is a legal ceiling set by agreement or rule. It is not the airport's actual traffic, "
+                "not its physical terminal capacity, and not evidence of unmet demand on its own."
+                + (" Where a limit is conditional, which value applies is not established here." if cond else ""))
+        restricted = list(dict.fromkeys(restricted))
+        if intent == "congestion" and restricted:
+            sup = [f for c in ans.get("claims", []) if c.get("kind") == "fact" for f in c.get("support", [])
+                   if any(c.get("text", "").startswith(f"{ap}:") for ap in restricted)][:4]
+            if sup:
+                alts = ["the limits may not bind if traffic stays below them"]
+                if cond:
+                    alts.append("which of the conditional limits applies is not established here")
+                if weak:
+                    alts.append("some records are reported, not verified against a primary document")
+                ans["claims"].append({"kind": "hypothesis", "support": sup, "text":
+                    f"At {', '.join(restricted)}, recorded regulatory restrictions (official passenger and departure "
+                    "limits and/or a curfew) may limit traffic independently of how busy the airfield is, so airside "
+                    "indicators alone may understate how restricted the airport is.", "alternatives": alts})
+        if intent == "unmet" and isinstance(ans.get("investigation"), dict):
+            ans["investigation"]["investigated"].append("curated operating restrictions, runway geometry and FAA "
+                                                        "capacity-profile records (shown in words, with evidence level)")
 
     @staticmethod
     def _objective_from_context(prev_metrics: list[str]) -> str | None:
@@ -303,16 +402,23 @@ class OfflineBackend:
             return [{"op": "aggregate", "entities": ent, "group_by": gb,
                      "metrics": ["dep_delay15_rate", "avg_taxi_out_min", "peak_hour_ops_p95", "tower_operations",
                                  "nas_delay_min_per_arrival"]}]
-        if intent == "long_haul" and long_haul_miles:        # analyst fixed the definition: no alternatives
+        # "flights" = ALL flights (passenger + cargo) first; passenger and freight splits beside it. Cargo hubs (ANC)
+        # differ several-fold by scope, and a passenger terminal concerns the passenger figure.
+        if intent == "long_haul" and long_haul_miles:        # analyst fixed the threshold: no alternative thresholds
+            mm = {"min_miles": long_haul_miles}
             return [{"op": "aggregate", "entities": ent, "group_by": gb, "metrics": [
-                {"id": "long_haul_share", "params": {"weight": "departures", "min_miles": long_haul_miles}},
-                {"id": "long_haul_share", "params": {"weight": "passengers", "min_miles": long_haul_miles}},
-                "intl_seat_share", "avg_stage_length"]}]
+                {"id": "long_haul_share", "params": {"weight": "departures", "scope": "all", **mm}},
+                {"id": "long_haul_share", "params": {"weight": "departures", "scope": "passenger", **mm}},
+                {"id": "long_haul_share", "params": {"weight": "departures", "scope": "freight", **mm}},
+                {"id": "long_haul_share", "params": {"weight": "passengers", "scope": "passenger", **mm}},
+                "avg_stage_length"]}]
         if intent == "long_haul":
             return [{"op": "aggregate", "entities": ent, "group_by": gb, "metrics": [
-                {"id": "long_haul_share", "params": {"weight": "departures"}},
-                {"id": "long_haul_share", "params": {"weight": "passengers"}},
-                {"id": "long_haul_share", "params": {"weight": "departures", "min_miles": 2400}},
+                {"id": "long_haul_share", "params": {"weight": "departures", "scope": "all"}},
+                {"id": "long_haul_share", "params": {"weight": "departures", "scope": "passenger"}},
+                {"id": "long_haul_share", "params": {"weight": "departures", "scope": "freight"}},
+                {"id": "long_haul_share", "params": {"weight": "passengers", "scope": "passenger"}},
+                {"id": "long_haul_share", "params": {"weight": "departures", "scope": "all", "min_miles": 2400}},
                 "intl_seat_share", "avg_stage_length"]}]
         if intent == "unmet":
             return [{"op": "aggregate", "entities": ent, "group_by": gb, "metrics": [
@@ -413,6 +519,9 @@ class OfflineBackend:
         if intent == "long_haul":
             ans["assumptions"].append("Long-haul is defined by segment distance; the question leaves the definition "
                                       "open, so alternative thresholds and weights are shown unless the analyst sets a threshold.")
+            ans["assumptions"].append("“Flights” is read as all flights (scope=all: passenger and all-cargo). The "
+                                      "passenger and freight splits are shown beside it: at cargo hubs they differ "
+                                      "several-fold, and a passenger-terminal investment concerns the passenger figure.")
         if intent == "unmet":
             ind = [f for _, k, f in cells if k.split("(")[0] in ("seat_factor", "tight_capacity_pax_share",
                                                                   "peak_hour_ops_p95", "dep_delay15_rate")]

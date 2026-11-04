@@ -255,25 +255,6 @@ def claim_label(c: dict, store: EvidenceStore) -> str:
             "financial": "Financial"}.get(kind, str(kind))
 
 
-def spoken_text(answer: dict, claims: list[dict], r) -> str:
-    """What voice mode says: built only from the VALIDATED, rendered answer (no second model rewrites it). Headline,
-    the judgment if there is one, then up to three leading statements; the full evidence stays on screen."""
-    from airport_agent.voice import speakable
-    parts = [r(answer.get("headline", ""))]
-    for c in claims:
-        if c.get("kind") == "assessment":
-            parts.append(f"Judgment: {c.get('judgment')}" if not c.get("abstain")
-                         else f"No definitive recommendation: {c.get('abstain_reason') or 'the evidence is insufficient'}")
-    lead = [c for c in claims if c.get("kind") in ("comparison", "ranking", "hypothesis", "inference")] or \
-        [c for c in claims if c.get("kind") == "fact"]
-    for c in lead[:3]:
-        t = r(c.get("text", "")).split("\n")[0]
-        parts.append(t if len(t) < 400 else t[:400].rsplit(" ", 1)[0] + ".")
-    if answer.get("limitations"):
-        parts.append("Limitations and the evidence for every number are shown on screen.")
-    return speakable(". ".join(p.rstrip(".") for p in parts if p) + ".")
-
-
 def scoring_method(answer: dict, claims: list[dict], store: EvidenceStore) -> list[str]:
     ids = {m[0] for m in PH.findall(answer.get("body", "") or "")}
     ids |= {f for c in claims for f in (c.get("support") or [])}
@@ -378,13 +359,14 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
         for f in expanded:
             defs.setdefault(f.metric_id, f.definition)
         lines += ["", "**Methodology**"] + [f"- `{k}`: {v}" for k, v in defs.items()]
-        cav = list(dict.fromkeys(c for f in expanded for c in f.caveats))
-        lim = answer.get("limitations", [])
-        if cav or lim:
-            lines += ["", "**Caveats and limitations**"] + [f"- {c}" for c in cav] + [f"- {r(x)}" for x in lim]
+    # limitations are rendered even when no finding is cited: that is exactly when the reader needs the reason
+    cav = list(dict.fromkeys(c for f in expanded for c in f.caveats))
+    lim = answer.get("limitations", [])
+    if cav or lim:
+        lines += ["", "**Caveats and limitations**"] + [f"- {c}" for c in cav] + [f"- {r(x)}" for x in lim]
     wids = list(dict.fromkeys(used_w))
     if wids:
-        lines += ["", "**External sources (web; not part of the internal datasets)**"] + [
+        lines += ["", "**External sources (web pages and cited official records; not part of the internal datasets)**"] + [
             f"- {w}: [{wtitle(w)}]({web[w]['url']}) (retrieved; see the source inspector for date and hash)" for w in wids]
     charts = [c for c in answer.get("charts", []) or [] if isinstance(c, dict)]
     ids = list(dict.fromkeys(ids + [f for c in charts for f in c["findings"]]))
@@ -419,6 +401,5 @@ def render(answer: dict[str, Any], store: EvidenceStore, known_codes: set[str] |
                   "caveats": list(dict.fromkeys(c for f in expanded for c in f.caveats)),
                   "methodology": {f.metric_id: f.definition for f in expanded},
                   "evidence": list(dict.fromkeys([f.id for f in expanded] + ids)),
-                  "charts": charts,
-                  "spoken": spoken_text(answer, claims, r)}
+                  "charts": charts}
     return {"markdown": "\n".join(lines), "cited_findings": ids, "structured": structured}

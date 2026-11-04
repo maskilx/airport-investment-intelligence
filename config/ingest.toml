@@ -24,7 +24,7 @@ periods = "latest"
 periods = "latest"
 
 [sources.faa_grants]
-periods = "available"                 # FY2021+ (consistent grant-detail layout)
+periods = "2021:2025"                 # FY2021-25: the grant-detail layout the adapter validates (FY2026 adds new program columns)
 
 [sources.faa_npias]
 periods = "latest"

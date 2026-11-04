@@ -20,7 +20,7 @@ import os
 import threading
 import uuid
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -38,9 +38,30 @@ from airport_data.db import connect
 WEB = Path(__file__).resolve().parents[2] / "web"
 
 
+class Dedup:
+    """Remembers recent client turn ids so a retried or reconnected request never creates a duplicate turn."""
+
+    def __init__(self, size: int = 512):
+        from collections import OrderedDict
+        self._d: OrderedDict[str, object] = OrderedDict()
+        self._lock = threading.Lock()
+        self.size = size
+
+    def seen(self, key: str) -> object | None:
+        with self._lock:
+            return self._d.get(key)
+
+    def remember(self, key: str, value: object = True) -> None:
+        with self._lock:
+            self._d[key] = value
+            self._d.move_to_end(key)
+            while len(self._d) > self.size:
+                self._d.popitem(last=False)
+
+
 class Message(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
-    client_turn_id: str | None = Field(default=None, max_length=80)   # voice/retry de-duplication
+    client_turn_id: str | None = Field(default=None, max_length=80)   # retry de-duplication (a resent turn runs once)
 
 
 class App:
@@ -62,12 +83,7 @@ class App:
         from airport_agent.evidence_files import RawFiles
         from airport_data.config import get_paths as _gp
         self.raw_files = RawFiles(_gp().raw)                 # read-only, archive-only file access for the inspector
-        from airport_agent.voice import Dedup, VoiceError, transcriber_from_env
-        self.voice_dedup = Dedup()
-        try:
-            self.transcriber, self.voice_error = transcriber_from_env(), None
-        except VoiceError as e:                              # voice misconfig never blocks text chat
-            self.transcriber, self.voice_error = None, str(e)
+        self.turn_dedup = Dedup()                            # client turn ids already accepted (retries run once)
         self.cancels: dict[str, set[threading.Event]] = {}     # one event per in-flight turn (never overwritten)
         self.lock = threading.Lock()
 
@@ -125,42 +141,17 @@ def create_app(state: App | None = None) -> FastAPI:
         meta = next((c for c in st.store.list() if c["id"] == cid), {})
         return {"id": cid, "title": meta.get("title", ""), "turns": turns}
 
-    @api.get("/api/voice/config")
-    def voice_config():
-        return {"stt": "groq" if st.transcriber else "browser", "stt_model": getattr(st.transcriber, "model", None),
-                "tts": "browser", "language": "en-US", "error": st.voice_error}
-
-    @api.post("/api/voice/transcribe")
-    async def transcribe(request: Request):
-        from airport_agent.voice import VoiceError, is_wav
-        if not st.transcriber:
-            raise HTTPException(409, "server speech-to-text is not configured (AIRPORT_VOICE_STT=groq)")
-        uid = request.headers.get("x-utterance-id") or ""
-        hit = st.voice_dedup.seen(f"u:{uid}") if uid else None
-        if hit is not None:                                  # a reconnect re-sent the same utterance: no second call
-            return {"text": hit, "utterance_id": uid, "duplicate": True}
-        body = await request.body()
-        if not is_wav(body) or len(body) > 5_000_000:
-            raise HTTPException(400, "expected a WAV utterance under 5 MB")
-        try:
-            text = await asyncio.get_running_loop().run_in_executor(None, st.transcriber.transcribe, body)
-        except VoiceError as e:
-            raise HTTPException(503, str(e))
-        if uid:
-            st.voice_dedup.remember(f"u:{uid}", text)
-        return {"text": text, "utterance_id": uid, "duplicate": False}
-
     @api.post("/api/conversations/{cid}/messages")
     async def message(cid: str, m: Message):
         agent = st.agent(cid)
         if m.client_turn_id:
             key = f"t:{cid}:{m.client_turn_id}"
-            if st.voice_dedup.seen(key) is not None:
+            if st.turn_dedup.seen(key) is not None:
                 async def dup():
                     yield f"event: duplicate\ndata: {json.dumps({'type': 'duplicate'})}\n\n"
                     yield f"event: done\ndata: {json.dumps({'type': 'done'})}\n\n"
                 return StreamingResponse(dup(), media_type="text/event-stream")
-            st.voice_dedup.remember(key)
+            st.turn_dedup.remember(key)
         loop = asyncio.get_running_loop()
         q: asyncio.Queue = asyncio.Queue()
         cancel = threading.Event()
@@ -235,6 +226,9 @@ def create_app(state: App | None = None) -> FastAPI:
         try:
             meta = st.raw_files.meta(source_id, period, vintage_id)
         except EvidenceFileError as e:
+            if e.status == 404 and st.build_info().get("dataset") == "demo":
+                raise HTTPException(404, "the demo dataset does not bundle the original source files; the full data "
+                                         "setup (./scripts/bootstrap.sh) downloads them")
             raise HTTPException(e.status, str(e))
         man = st.con.cursor().execute(
             "SELECT validation_status, row_counts, stored_at, url FROM ingest_manifest WHERE source_id = ? AND period = ? "
@@ -353,6 +347,9 @@ def main() -> None:                                       # python -m airport_ap
         print(f"  Mode               : OFFLINE (rule-based planner; no model API calls)")
     bi = st.build_info()
     print(f"  Database           : {paths.db_file}  (built {bi.get('built_at', '?')}, rev {bi.get('git_rev', '?')})")
+    if bi.get("dataset") == "demo":
+        print("  Dataset            : DEMO subset of the real data (New England airports, LAX, SNA, SFO, ANC);"
+              " full data: ./scripts/bootstrap.sh")
     print(f"  Conversations      : {st.store.path if hasattr(st.store, 'path') else paths.app}")
     print(f"  Web research       : {'on' if st.web_enabled else 'off'}")
     print(f"  Open               : http://{a.host}:{a.port}")

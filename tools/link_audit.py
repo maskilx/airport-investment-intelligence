@@ -1,4 +1,4 @@
-"""Audit every external link the product or its docs show (docs/link-audit.md is written from this output).
+"""Audit every external link the product or its docs show (prints a JSON report).
 
     .venv/bin/python tools/link_audit.py > eval/runs/link_audit.json
 

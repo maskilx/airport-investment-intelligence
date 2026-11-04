@@ -1,0 +1,115 @@
+%% Airport Investment Intelligence: system architecture (editable structural source).
+%% The published image docs/images/architecture.svg has the same components and edges, laid out by
+%% tools/render_architecture.py. Purple = AI (language model). Blue = deterministic code. Green = validation.
+%% Grey = data.
+flowchart TB
+  user(["`**Analyst**
+  asks in plain language`"])
+
+  subgraph ui["Interface"]
+    direction LR
+    web["`**Chat workspace**
+    text chat, live progress,
+    evidence inspector`"]
+    api["`**FastAPI server**
+    conversations, streaming (SSE),
+    evidence and provenance API`"]
+    render["`**Response rendering**
+    answer, Vega-Lite charts,
+    evidence, method, limitations`"]
+  end
+
+  subgraph agent["Agent orchestration"]
+    direction LR
+    planner["`**Planner (AI)**
+    LLM (Gemini or Groq), or the
+    offline rule-based planner`"]
+    loop["`**Agent loop**
+    step, tool-call and time budgets;
+    progress events`"]
+    memory["`**Conversation memory**
+    entities, findings, assumptions;
+    number-free summaries`"]
+  end
+
+  subgraph tools["Tools"]
+    direction LR
+    resolve["`**Resolve places**
+    codes, cities, regions;
+    asks when ambiguous`"]
+    analyze["`**Run analysis**
+    aggregate, rank, trend,
+    forecast vs actual, screen`"]
+    context["`**Context**
+    constraint records, data gaps,
+    recall, live FAA status`"]
+    compose["`**Compose answer**
+    placeholders and
+    typed claims`"]
+  end
+
+  subgraph engine["Analytics and validation"]
+    direction LR
+    semantic["`**Semantic layer**
+    metric definitions,
+    ratio-of-sums SQL`"]
+    scoring["`**Opportunity screen**
+    weights and anchors
+    (config/screening.toml)`"]
+    findings[("`**Findings F#**
+    value, period, inputs,
+    sources, caveats`")]
+    validator{{"`**Validator**
+    numbers only from findings;
+    relations and ranks checked by code`"}}
+  end
+
+  subgraph data["Data foundation"]
+    direction LR
+    db[("`**DuckDB**
+    conformed views;
+    full data or demo subset`")]
+    ingest["`**Ingestion**
+    checksum, blocking validation,
+    atomic build`"]
+    sources["`**Public data**
+    BTS T-100, On-Time; FAA TAF,
+    ACAIS, ATADS; BEA, Census`"]
+    curated["`**Curated records**
+    caps, curfews, capacity rates`"]
+    live["`**FAA NAS Status**
+    live public API`"]
+  end
+
+  user --> web
+  web -- "question" --> api
+  api --> web
+  api --> loop
+  loop -- "progress events" --> api
+  loop <--> planner
+  loop <--> memory
+  planner -- "tool calls" --> resolve & analyze & context & compose
+  analyze --> semantic & scoring
+  semantic --> scoring
+  semantic & scoring --> findings
+  findings --> validator
+  compose --> validator
+  validator -. "rejected: errors to the planner" .-> compose
+  validator -- "accepted" --> render
+  render --> api
+  semantic -- "SQL" --> db
+  context -.-> live
+  sources --> ingest
+  curated --> ingest
+  ingest --> db
+
+  classDef ai fill:#f1ebfd,stroke:#6a46c4,stroke-width:2px,color:#2a1760
+  classDef det fill:#eef4fd,stroke:#3a6fc0,stroke-width:1.2px,color:#12305e
+  classDef val fill:#e8f5ed,stroke:#2b8754,stroke-width:2px,color:#0e3a22
+  classDef dat fill:#f4f4f1,stroke:#86867e,stroke-width:1.1px,color:#2a2a26
+  classDef usr fill:#ffffff,stroke:#2a2a26,stroke-width:1.4px,color:#2a2a26
+  class planner ai
+  class web,api,render,loop,memory,resolve,analyze,context,compose,semantic,scoring,findings det
+  class validator val
+  class db,ingest,sources,curated,live dat
+  class user usr

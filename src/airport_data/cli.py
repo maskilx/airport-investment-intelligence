@@ -86,7 +86,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status")
     sub.add_parser("coverage")
     sub.add_parser("sources")
+    sub.add_parser("demo-import", help="demo/snapshot (Parquet subset) -> demo/data/db/airport.duckdb")
     args = ap.parse_args(argv)
+    if args.cmd == "demo-import":
+        from .demo import import_snapshot
+        print(f"demo database: {import_snapshot()}")
+        return 0
     paths = get_paths(args.data_dir)
     reg = registry(paths)
     if args.cmd == "sources":

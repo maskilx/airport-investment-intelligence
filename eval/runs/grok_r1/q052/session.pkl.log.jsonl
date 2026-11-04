@@ -1,4 +1,0 @@
-{"tool": "describe_catalog", "input": {}, "error": null}
-{"tool": "query_sql", "input": {"sql": "SELECT table_schema, table_name FROM information_schema.tables ORDER BY table_schema, table_name"}, "error": "invalid_spec"}
-{"tool": "query_sql", "input": {"sql": "SELECT * FROM v_airport_investment_records LIMIT 1"}, "error": null}
-{"tool": "query_sql", "input": {"sql": "SELECT DISTINCT record_type, status FROM v_airport_investment_records"}, "error": null}

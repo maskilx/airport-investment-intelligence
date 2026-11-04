@@ -1,146 +1,238 @@
-# Airport Investment Intelligence Agent: Architecture
+# Architecture
 
-An analyst workspace for **airport modernization screening and due diligence**. You ask questions in natural
-language. Every number in an answer is a traceable finding, computed by a deterministic engine over public data, and
-every claim is typed and checked against the evidence it cites. The LLM plans and explains. It never computes, never
-writes a number, and never decides on its own that a comparison, ranking or cause holds.
+Airport Investment Intelligence answers analyst questions about US airports with numbers computed by deterministic
+code from public data. A language model plans the work and explains the result. It never produces a value, a rank or
+a score, and code checks its explanation before anyone sees it.
 
-The system separates three questions:
-* **Stage A, passenger growth opportunity.** Built: the screen in §2.
-* **Stage B, whether a terminal intervention addresses an actual constraint.** Flags and evidence-graded constraint records are built. The assessment itself is not.
-* **Stage C, project economics.** Not built.
+![Architecture: interface, agent orchestration, tools, deterministic analytics and validation, data foundation](docs/images/architecture.svg)
 
-It does not claim that an expansion is profitable. The reconciliation of the independent reviews and the plan are in
-[docs/10](docs/10-architecture-assessment.md).
+*Editable structure: [docs/diagrams/architecture.mmd](docs/diagrams/architecture.mmd).*
 
-```
- 17 registered sources*         deterministic core                                 AI layer               product
- BTS T-100, On-Time          ┌───────────────────────────┐   ┌──────────────┐   ┌──────────────────┐   ┌──────────────┐
- FAA ATADS, ACAIS, TAF,      │ raw vintages (sha256)     │   │ semantic     │   │ agent runtime    │   │ FastAPI SSE  │
- NPIAS, grants, NASR,   ───► │ validation (blocking)     ├──►│ layer +      ├──►│ (provider-       ├──►│ workspace UI │
- Census CBSA, BEA,           │ DuckDB conformed views    │   │ analysis DSL │   │  agnostic loop)  │   │ charts,      │
- OurAirports, curated        └───────────────────────────┘   │ → Findings F#│   │ memory, web W#   │   │ evidence,    │
-                                                             └──────┬───────┘   └────────┬─────────┘   │ voice        │
-                                                                    └── grounding validator ◄┘          └──────────────┘
-```
-\* public bulk files and reporting-form exports (BTS, FAA, Census, BEA, OurAirports), plus curated and reference tables.
-They are not 17 live APIs.
+**Execution flow**
+1. The analyst types a question in the chat workspace. The FastAPI server streams the turn as server-sent events.
+2. The **agent loop** builds the context: the question, a structured memory block from earlier turns and the tool
+   schemas. It then asks the **planner** for the next step. The planner is an LLM, or the offline rule-based planner.
+3. The planner calls typed **tools**:
+   * resolve the airports or the region;
+   * run one or more analyses;
+   * fetch context such as constraint records or information gaps.
 
-## 1. Layers and why each exists
+   Every call is validated against a schema and runs under step, tool-call and time budgets.
+4. The **deterministic analytics** compile each metric to SQL over DuckDB. They return **findings**: each value with
+   its unit, period, inputs, sources and caveats, under a stable id (`F12`).
+5. The planner drafts the answer with `compose_answer`. Numbers appear only as placeholders (`{F12}`), and every
+   assertion is a typed claim.
+6. The **validator** checks the draft.
+   * If it is rejected, the errors go back to the planner for another attempt.
+   * If it is accepted, the answer is rendered with charts, evidence, assumptions and limitations, and streamed to
+     the UI.
 
-| Layer | Code | Purpose | Why not simpler / heavier |
-|---|---|---|---|
-| Data foundation | `src/airport_data` | Immutable, vintaged raw archive with sha256 → validation → atomic DuckDB build; airport identity keyed on BTS `airport_id` with crosswalks | Reproducibility and lineage are prerequisites for "clickable evidence". DuckDB is embedded and fast, with no server. |
-| Semantic layer | `airport_analytics/semantic.py` | Facts → additive measures → metrics, evaluated as ratio-of-sums at the requested grain. Period, coverage and caveats are attached. | Stops the classic errors: averaging ratios, summing area values, mixing stocks and flows. |
-| Analysis DSL | `analysis.py`, `screening.py` | JSON specs with ops `aggregate, rank, correlate, trend, anomaly, distribution, forecast_vs_actual, screen` plus transforms `pct_change, abs_change, cagr` | The model composes analyses instead of writing SQL, and specs are validated with typed errors. `query_sql` exists as an AST-whitelisted escape hatch labelled *exploratory*. |
-| Evidence | `evidence.py` | A `Finding` per number: value, unit, class (observed / calculated / forecast / estimated / exploratory), definition, window, sources and vintages, caveats, inputs. Each finding also carries an **execution envelope** (tool, op, full original spec, resolved airport ids, catalog version, screening config hash, scenario, as-of date, data build fingerprint), the **assumptions** it was produced under, and a **status** (current or stale). | The single source of numeric truth. `get_finding(reproduce)` replays the *original* operation and reports `match`, `build_same`, `entity_set_same` and `config_same`. |
-| Traceability | `render.py` | `compose_answer` validates `{F#}` placeholders. It rejects literal numbers, number words, Unicode numerals, a finding cited next to a different airport, and stale findings. Evidence, methodology and caveats are appended automatically. | Guarantees *where a number came from*. It does not show that the number supports the sentence; claim validation does that. |
-| Claim validation | `claims.py` | Typed claims, each with deterministic requirements: `fact`, `comparison` (same metric, unit, class and period; relation checked against the values; a 5% band means "similar"), `ranking` (must come from a rank or screen op; code writes rank, set size and scenario robustness), `inference`, `hypothesis` (indicator findings plus competing explanations), `financial` (needs a `financial_model` finding; none exists, so always rejected), `external`. Vocabulary gates cover headline, body and caveats. Years must be periods of cited findings. | The model chooses *what* to claim; code decides whether the evidence supports that kind of claim. The vocabulary gate is defence in depth: paraphrase can evade it. The structural checks are the guarantee. |
-| Agent runtime | `airport_agent/runtime.py` | Tool loop with step, tool-call, wall-clock and cancellation budgets, checked before every tool. DuckDB is interrupted mid-query on timeout or cancel. Every `tool_use` gets a paired result. Each provider request has a hard context cap that compacts old tool bodies to finding ids. Events and traces. A final answer must pass validation, or be a number-free clarification. | Custom (~400 lines) rather than a framework: the invariants above live in the loop, and every framework surveyed would have to be worked around. |
-| Memory | `memory.py`, `assumptions.py` (decision record: [docs/08](docs/08-memory-and-context.md)) | SQLite transcript, persisted findings with stable ids, structured state, number-free rolling summary, BM25 recall, token-budgeted context. **Assumption dependencies:** an assumption may bind a parameter (`long_haul_share.min_miles = 2400`, a screen scenario), and findings computed with any other value become stale. Superseding an unbound assumption stales the findings produced under it. Staleness propagates through `derive`. | No vector DB or memory framework. All of them store LLM paraphrases, which would violate "a summary is never a source of numbers". Memory text is number-masked. |
-| Web research | `web.py` | `web_search` + SSRF-guarded `fetch_page` produce W# external evidence, separate from F#. Web numbers are allowed only inside quotes verified verbatim against the fetched text. | Keeps internal facts and external claims visibly distinct, and auditable. |
-| Models | `models.py`, `offline.py` | One `ModelBackend` protocol. **Gemini** (REST, opt-in, request budget, usage log, no fallback), a scripted backend for tests, and a deterministic **offline planner** for demos with zero model calls | Cost safety by construction. The offline planner exercises the full stack in tests and the UI. |
-| API + UI | `airport_app/server.py`, `web/` | FastAPI with SSE streaming (tool strips live), conversations, cancellation, a provenance endpoint and a memory inspector. Vanilla ES-module UI with vendored Vega-Lite | No build toolchain. Charts are built server-side from findings, so the browser never computes a number. |
-| Missing information | `airport_analytics/information.py`, `config/information_gaps.toml` | `check_information` classifies a need as exists, derivable, proxy, external, not measurable or unknown. It returns validated proxy metric ids, what they cannot establish, the data needed and the next step. Answers to investigations carry an **investigation summary**: objective, investigated, established (cited), unknown, next step. | A forward-deployed analyst does not stop at "no data". It runs labelled proxies, says what remains unknown, and names the most useful next step. Config, not templates. |
-| Model providers | `airport_agent/models.py` | Offline (rule-based), **Gemini** (free-tier Flash), **Groq** (`openai/gpt-oss-120b`): one `ModelBackend` protocol and the same loop, tools and validation. Each has its own Keychain key, daily budget, usage log and smoke-test allowance, and none falls back to another. Groq has free-tier pacing and a context cap ([docs/model-provider-review.md](docs/model-provider-review.md)). | Swapping the model never changes what counts as evidence. |
-| Local evidence explorer | `airport_analytics/evidence_data.py`, `airport_agent/evidence_files.py`, `/api/evidence/*` | Clicking a number opens five sections: the result; how it was calculated (each measure per period and in total, plus the value recomputed from those totals and checked against the finding); the data used (contributing rows, paginated, each tagged with the downloaded file version it came from); the original local file (metadata, bounded preview of zip members, sheets and CSV, filtered to the airport, and a download); and the publisher reference, labelled by what it opens. | Local-first evidence works offline and never sends the analyst to a search page. The archive is addressed only by (source, period, version, listed file name), so nothing else on disk is reachable. |
-| Voice | `airport_agent/voice.py`, `web/app.js` | A chained pipeline: browser VAD or Web Speech, then optional server Whisper STT, then **the same message endpoint**, then a deterministic spoken rendering of the validated answer, then browser speech with barge-in ([docs/voice-architecture-review.md](docs/voice-architecture-review.md)). | Speech-to-speech models would re-voice our answers; here the words spoken are the ones validated. |
+## A. Components
 
-## 1b. Data acquisition: what is and is not an API
-
-| How | Sources |
-|---|---|
-| **Public REST API (live, keyless)** | FAA NAS Status `api/airport-status-information`, used for "right now" questions as external evidence (W#), not part of the reproducible database |
-| **Public file downloads (scripted HTTPS GET)** | BTS On-Time monthly zips, FAA TAF, FAA enplanement and cargo workbooks, AIP grant workbooks, NPIAS, NASR APT, Census CBSA delineation, BEA CAINC1, OurAirports CSV |
-| **Public reporting forms (scripted form POST)** | BTS T-100 segment, BTS lookup tables, FAA ATADS |
-| **Curated (cited by hand) and reference tables** | airport constraints, geography overrides, state and division lists |
-
-Historical analytics come from vintaged downloads, not live APIs, for reproducibility: every number can be rebuilt
-bit for bit. All acquisition is automated (`python -m airport_data fetch --all-default`) from public endpoints.
-
-## 2. Scoring methodology: Passenger Growth Opportunity Screen (stage A)
-
-`op=screen` is defined in `config/screening.toml` (versioned `model_version = 1.0`). It ranks **passenger growth
-opportunity**: forecast increase, realized growth and market income.
-
-It does **not** establish:
-* that a terminal is the binding constraint (runway capacity is not terminal capacity, and high load factors are not denied demand);
-* project returns.
-
-Weights and anchors are analyst assumptions, not fitted predictors of return. Earlier versions of this document
-called it a "terminal-expansion screen", which overclaimed.
-
-* **Gate:** airports with fewer than 500k annual enplanements (FAA ACAIS, latest calendar year) are listed as below investment scale and not scored.
-* **Components** are scaled to 0–100 on *fixed anchors*. Fixed anchors make scores comparable across regions and runs; they are not min-max scaled within the result set.
-
-| Component | Metric | Scale | Anchors | Base weight |
-|---|---|---|---|---|
-| Projected passenger increase | FAA TAF enplanements FY2035 − FY2025 (absolute) | log10 | 10k → 0, 10M → 100 | 0.50 |
-| Realized growth | T-100 passengers, trailing 12 months vs prior 12 | linear | −5% → 0, +10% → 100 | 0.30 |
-| Market strength | Home-CBSA per-capita income (BEA, latest year) | linear | $45k → 0, $110k → 100 | 0.20 |
-
-* **Flags** are reported, never hidden in the score. They come from curated constraint records evaluated at an explicit **as-of date**, which is recorded for replay. Each record has an evidence level: `primary`, `secondary`, `snippet` or `unverified`.
-  * `REGULATORY_CAP` / `CURFEW`: in effect at as-of, with primary or secondary evidence. Expired caps are excluded and listed.
-  * `REPORTED_CONSTRAINT_UNVERIFIED`: in effect, but with only snippet or unverified evidence. Shown, never treated as fact.
-  * `AIRFIELD_BINDING` / `AIRFIELD_HEADROOM_IMC`: scheduled peak against the highest primary- or secondary-verified instrument-conditions rate, in at least 5% of operating hours. The rate must be a strict number or range in operations/hour. Free text is never mined for numbers.
-  * `AIRFIELD_UNKNOWN`: no usable verified rate.
-  * `CARRIER_CONCENTRATION`: the largest carrier holds more than 50% of seats.
-* **Explaining a score:**
-  * Every airport's score is split into one *calculated* finding per factor (weight × anchored points), so each answer shows `score = Σ contributions`, and each contribution links to its input finding and source file.
-  * The ranking claim names the largest contributor and the rank range across scenarios. Code writes both.
-  * Every answer that cites a screen score carries a **"How the score is calculated"** section. It is generated from `config/screening.toml`, never written by the model, and covers purpose, factors, weights, anchors, eligibility, missing-data rule, ties, scenarios and flags.
-* **Robustness:**
-  * Each airport's rank is reported under four weight scenarios: base, equal, demand-only and momentum-heavy, with the maximum rank shift.
-  * Gaps under 3 points are reported as ties.
-* **Other answers:**
-  * Congestion uses airside indicators: delay rate, taxi-out, scheduled peak hour (p95), tower operations, NAS delay per arrival. Coverage is shown because On-Time covers only reporting carriers on domestic flights.
-  * Long-haul share is parameterised (threshold, departure- vs passenger-weighted), and alternatives are shown when the definition is open.
-  * "Unmet demand" is **never** presented as measured. The agent reports indicators (seat factor, share of capacity-tight routes, peak pressure, TAF vs actual, carrier concentration) and labels the causal story a hypothesis.
-
-## 3. Where AI is used, and where it is not
-
-| Step | Who | Notes |
+| Component | Code | Responsibility |
 |---|---|---|
-| Understanding the question, choosing entities, metrics, periods and ops | LLM (Gemini) | Tool calls validated against the catalog. Ambiguity triggers a clarification ("Portland" → PDX or PWM). |
-| Resolving places | deterministic resolver | Aliases, codes, "City, State", regions. Ambiguity is returned, never guessed. |
-| Every computation and number | deterministic engine | DuckDB SQL compiled from the semantic layer. |
-| Arithmetic between results | `derive` tool | Recorded as a new finding with inputs. |
-| Writing the explanation | LLM | Placeholders only. Every assertion is a typed claim. Code verifies comparison directions and compatibility, writes ranks, requires competing explanations for causal stories, and rejects financial claims (no economics model). |
-| Assumptions and corrections | LLM proposes; code enforces | `update_memory` with `binds`. Dependent findings go stale and cannot be cited. |
-| Assessments and recommendations | LLM judges; code checks | Only when the question asks for a judgment (prioritise, recommend, suitable, attractive, better). The claim is `assessment {objective, criteria[{name, findings, favors, direction}], judgment, conditional_on, would_change, abstain}`. Code verifies the following. Every criterion cites current findings. The option a criterion favours is the one its values support, given the stated direction, with near-ties (within 5%) counted as "neither". The judgment does not name an option that no criterion favours. Weights and scores come only from a documented model (screen or rank). Certainty, financial and causal language are rejected. Insufficient evidence means an explicit abstention. Criteria depend on the objective; there is no universal score. |
-| Understanding the objective and handling missing information | LLM, with deterministic support | The model decides the question type and the objective, using memory before asking. `check_information` deterministically maps the gap to proxies and next steps. One focused question only when the answer depends on it. |
-| Labelling what kind of knowledge a statement is | deterministic | Claim tags come from claim type and evidence class: Measured, Calculated, Forecast (FAA), Comparison or Ranking (computed), Interpretation, Hypothesis, External source. Values that are not established are listed under Limitations with the reason, never shown as facts. |
-| Charts | deterministic | ChartSpec (findings + type + validated title) → Vega-Lite. |
-| Memory updates | deterministic + validated tool | State is updated from tool calls. `update_memory` records assumptions and corrections; summaries are number-free. |
-| Web context | LLM chooses pages; code verifies quotes | |
+| Chat workspace | `web/` (vanilla ES modules, vendored Vega-Lite) | Streams tool progress and answers; evidence inspector for every number; charts; conversation list |
+| API server | `src/airport_app/server.py` (FastAPI, SSE) | Conversations, streaming turns, cancellation, evidence and provenance endpoints, retry de-duplication |
+| Agent loop | `src/airport_agent/runtime.py` | Model and tool turns, budgets, pairing of every tool call with a result, context cap, events and traces |
+| Planner | `src/airport_agent/models.py`, `offline.py` | One `ModelBackend` interface: Gemini, Groq or the offline rule-based planner |
+| Memory | `src/airport_agent/memory.py`, `assumptions.py` | SQLite transcript, persisted findings, structured state, number-free summaries, keyword recall, assumptions that make findings stale |
+| Tools | `src/airport_analytics/tools.py` | `resolve_entities`, `describe_catalog`, `run_analysis`, `derive`, `query_sql` (labelled exploratory), `check_information`, `airport_constraints`, `get_finding`, `compose_answer`, plus memory tools and `live_airport_status` |
+| Analytics | `src/airport_analytics/` (`semantic.py`, `analysis.py`, `screening.py`, `resolver.py`) | Metric catalog, analysis operators, opportunity screen, place resolution |
+| Evidence and validation | `evidence.py`, `claims.py`, `render.py` | Findings, typed-claim checks, rendering |
+| Data foundation | `src/airport_data/` | Fetch, checksum, validate and build the DuckDB database, with lineage |
 
-## 4. Key trade-offs
+## B. Data architecture
 
-* **Deterministic core vs flexibility.** The DSL covers most questions: in the generated evaluation, the failures were step-budget exhaustion, not missing operators. `query_sql` handles the long tail, labelled exploratory. The cost is maintaining the semantic layer, and the benefit is that every number is reproducible.
-* **Custom loop vs agent framework.** About 300 lines that we fully control and test with scripted models. We forgo framework conveniences such as built-in tracing UIs.
-* **Lexical memory vs embeddings.** References in this domain are codes, names and ids, where exact matching wins. No embedding calls means no cost and no extra service. The upgrade path is SQLite FTS5, then embeddings behind the same `retrieve()` signature.
-* **Data freshness vs reproducibility.** Answers carry periods and vintages. A rebuild from the committed raw archive is bit-for-bit identical, and new vintages are additive.
-* **Public data limits, stated rather than papered over.** There is no fare, spill or booking data, so unmet demand is inferred, not measured. On-Time is domestic and reporting carriers only, so coverage is shown. TAF is an unconstrained FAA forecast. Terminal capacity (gates, square feet) is not in public structured data; web research can add cited context, but not "facts".
-* **Typed claims vs free prose.** Comparisons and rankings are rendered by code, so the model cannot get a direction or rank wrong. The cost is less fluent prose. Vocabulary gates catch common overclaims ("guaranteed", "profitable", "needs more gates", "because"), but a determined paraphrase can evade a lexicon. That residual risk is accepted and documented, rather than hidden behind an LLM judge that would itself be unverifiable.
-* **Over-invalidation vs silent staleness.** An unbound assumption change stales everything produced under it. Re-running is cheap; citing a finding computed under a superseded definition is not.
-* **Context budget.** The hard cap uses a conservative 3 chars/token estimate (real tokenizers average about 4). Exact provider token counting is a network call, deferred until live use.
-* **Groq free tier.** 8k tokens per minute per model forces small requests and pacing (minutes per question). The adapter handles it honestly rather than failing; the Developer plan is the recommended demo setting (about one cent per question).
-* **Voice: chained versus speech-to-speech.** Slightly higher latency (VAD end, STT, agent time) in exchange for one authoritative agent and validated speech. Browser TTS is free and instant; Groq's English TTS is a preview model with tight limits.
-* **Voice (earlier design).** Browser Web Speech (recognition + synthesis) drives the same agent at zero cost. A real-time voice stack (e.g. Pipecat + WebRTC) is the documented upgrade path ([docs/07](docs/07-product-phase-plan.md)).
+**Sources.** Public datasets are downloaded by script: BTS T-100 and On-Time, FAA TAF, ACAIS and ATADS, BEA income,
+Census CBSA delineation, FAA NASR and OurAirports. A hand-curated file of cited constraint records is loaded the
+same way. One live public API, FAA NAS Status, provides current delay programs. Its responses are stored as external
+evidence and are not part of the database.
 
-## 5. Quality evidence
+**Pipeline:** `fetch → integrity check → immutable raw version (sha256) → blocking validation → atomic DuckDB build`.
+* Each source is an adapter that declares its tables and checks, and is registered in one place.
+* A file that fails validation is never loaded; the last valid version keeps serving.
+* A rebuild from the same archive is bit-for-bit identical.
+* Every row carries its source, period and version, so a finding can point to the exact downloaded file.
 
-* **Tests (offline, no model calls):**
-  * data pipeline, golden analytics values, typed errors, property tests;
-  * regressions from two independent adversarial reviews;
-  * memory: a 120-turn budget test and a poisoned summariser;
-  * runtime with scripted and mocked-Gemini backends, the API over SSE, web SSRF and quote checks.
-* **Reviews:**
-  * Grok 4.7: data audit (16 findings), engine adversarial review (18), product-layer review (19). Logged in [docs/06](docs/06-phase2-audit-review-log.md) and [docs/reviews](docs/reviews/grok-product-review-2026-11-04.md).
-  * An independent product and architecture review.
-  * Both are reconciled against the code in [docs/10](docs/10-architecture-assessment.md).
-* **Agent evaluation:** 49 of 70 generated questions were scored before the run was stopped, with 47 passing. The planner was Grok through its CLI, **not** this product loop with Gemini. The 21 unrun questions include all 10 adversarial questions. This is evidence, not a benchmark result ([docs/06](docs/06-phase2-audit-review-log.md)).
-* **Assignment compliance and readiness:** [docs/11-assignment-compliance.md](docs/11-assignment-compliance.md). **Link audit:** [docs/link-audit.md](docs/link-audit.md).
-* **Not yet demonstrated:**
-  * A successful live LLM run through this loop. The single Gemini smoke request on 2026-11-04 got HTTP 503 (provider overload) and was not retried. Groq is untested until a key is entered.
-  * Real-microphone voice. The voice pipeline is tested through its code paths, without audio hardware.
+**Normalization.**
+* Airports are keyed on the stable BTS `airport_id`, with crosswalks to FAA, IATA and ICAO codes and to county and
+  CBSA.
+* Conformed views decode codes and attach Census regions.
+* Ratios are always evaluated as ratios of sums at the requested grain, never as averages of ratios.
+* Each source keeps its own reporting window. Answers show the window of every value.
+
+**Demo dataset.** `demo/snapshot/` (42 MB of Parquet) is a subset of the same database:
+* all reference and annual tables;
+* the flight rows that touch New England airports, LAX, SNA, SFO and ANC.
+
+For those airports the values are identical to the full database (tested). Analyses that would need other airports
+are refused with an "outside the demo dataset" error, never answered partially.
+
+## C. Scoring methodology: Passenger Growth Opportunity Screen
+
+The screen ranks **passenger growth opportunity**. It does not establish that a terminal is the binding constraint,
+and it does not compute returns. The model is versioned in `config/screening.toml`.
+
+| Factor | KPI | Normalization (fixed anchors, clipped) | Weight |
+|---|---|---|---|
+| Projected passenger increase | FAA TAF enplanements, FY2035 − FY2025 (absolute) | log10: 10k → 0, 10M → 100 | 0.50 |
+| Realized growth | BTS T-100 passengers, trailing 12 months vs the prior 12 | linear: −5% → 0, +10% → 100 | 0.30 |
+| Market strength | Home-CBSA per-capita income (BEA) | linear: $45k → 0, $110k → 100 | 0.20 |
+
+**Score.** `score = Σ weightᵢ × pointsᵢ`. The score is additive, so each answer shows every factor's contribution as
+its own finding.
+
+**Fixed anchors.** Scores do not depend on which airports are in the result set, so they compare across regions and
+runs. Identical inputs give identical scores.
+
+**Eligibility.** At least 500k annual enplanements (FAA ACAIS). Smaller airports are listed as below scale.
+
+**Missing data.** An airport missing any input is listed as not scored, with the reason. There is no imputation and
+no reweighting. Zero is never used for unknown.
+
+**Ties and robustness.**
+* Gaps under 3 points are reported as ties.
+* Ranks are recomputed under four weight scenarios: base, equal, demand-only and momentum-heavy.
+* Each rank is reported with its range across scenarios.
+
+**Flags.** Flags appear beside the score and never change it.
+* **Regulatory caps and curfews** count only with primary or secondary evidence in effect on the as-of date.
+  * A conditional record is marked as conditional and never stated as one value. Example: SNA's 2026–2030 passenger
+    limit is 12.2 or 12.5 million, depending on 2021–2025 traffic and mitigation.
+  * Weaker records are shown as *reported*.
+* **Airfield capacity versus schedule** is one-sided. The schedule count is a lower bound (On-Time reporting
+  carriers), so the flag can show that the airfield is binding, but never that it has headroom.
+* **Carrier concentration** is flagged when one carrier holds more than 50% of seats.
+
+**Restrictions.** A regulatory limit is a legal ceiling. It is not the airport's actual traffic, not its physical
+terminal capacity, and not evidence of unmet demand on its own.
+
+**Other KPIs.**
+* **Congestion:** departure delay rate, average taxi-out, scheduled peak hour (95th percentile), tower operations
+  and NAS delay per arrival. These are airside indicators.
+* **Long-haul share:** departures (or passengers) on segments at or above a threshold distance.
+  * All flights are reported first, with the passenger and freight splits beside them.
+  * The threshold is a parameter, and alternatives are shown when the question leaves it open.
+* **Unmet demand:** no public dataset measures denied demand. The answer reports demand-pressure indicators (seat
+  factor, share of passengers on capacity-tight routes, peak pressure, delays, forecast versus actual), a labelled
+  hypothesis with competing explanations, and the dataset that would be needed.
+
+## D. AI responsibilities
+
+| Task | Done by |
+|---|---|
+| Understanding the question; choosing airports, metrics, periods and analyses; deciding when to ask | **AI** (LLM planner) or the offline rule-based planner |
+| Resolving place names, codes and regions (ambiguity is returned, never guessed) | Deterministic resolver |
+| Every calculation, score, rank, comparison direction and chart value | Deterministic engine |
+| Writing the explanation, hypotheses and judgments | **AI**, through placeholders and typed claims |
+| Deciding whether the evidence supports each kind of claim | Deterministic validator |
+| Profitability, ROI, valuation | Not computed. Financial claims are rejected because no economics model exists |
+
+The AI never sees a number it could write into prose: all values reach the answer through `{F#}` placeholders. A
+summary of earlier turns contains no numbers by design, so memory can never become a source of values.
+
+## E. Agent orchestration
+
+**Loop.** At most 14 model steps, 30 tool calls and 240 seconds per turn, checked before every call.
+* A cancelled or interrupted query still returns a paired result.
+* Each request has a hard context cap; old tool results are compacted to finding ids.
+
+**Clarification and assumptions.**
+* An ambiguous place ("Portland") produces one focused question.
+* A contrast that makes the intent clear ("LA vs Santa Ana") proceeds, and the choice is stated as an assumption.
+
+**Follow-ups.** The memory block carries the entities in focus, the last ranked list, a findings index and the active
+assumptions. "The top two of those", "the first airport we discussed" and "use 2000 miles instead" therefore
+resolve against the conversation.
+
+**Stale findings.** A changed parameter is recorded as a *bound assumption*. Findings computed under the old value
+become stale and can no longer be cited.
+
+**Missing information.** `check_information` classifies a need: exists, derivable, proxy, external, or not
+measurable. The answer then runs the labelled proxies and names the next useful dataset, rather than stopping at
+"no data".
+
+**Offline planner.** A deterministic, rule-based planner drives the same tools and validator without any model. It
+makes the product demonstrable and testable without a key, and it is labelled as such in every answer and in the UI.
+
+## F. Evidence and validation
+
+* **Findings** are the only source of numbers. Each records its execution envelope: operation, full specification,
+  resolved airports, catalog version, scoring-config hash and data build. `get_finding(reproduce)` replays it and
+  reports whether it matches.
+* **Validator rules:**
+  * Literal numbers and number words are rejected, as are findings cited next to the wrong airport and stale
+    findings.
+  * A year may appear only if it is a period of a cited finding.
+* **Typed claims:**
+
+| Claim | Requirement |
+|---|---|
+| `fact` | Cites findings; no comparative, causal or financial language |
+| `comparison` | Same metric, unit, class and period; code checks the direction against the values (within 5% means "similar") and writes the sentence |
+| `ranking` | Must come from a rank or screen operation; code writes the rank, set size and scenario range |
+| `hypothesis` | Required for causes, unmet demand and capacity need; needs indicator findings and competing explanations |
+| `assessment` | Criteria must cite findings, and the favoured option must match the values; can abstain |
+| `external` | Web pages, official records and live status (W#); numbers only inside a verbatim quote checked against the stored text, with the source link shown |
+
+* **Vocabulary gates** reject certainty, financial and capacity-need language where the evidence cannot support it.
+  They are defence in depth; the structural checks above are the guarantee.
+* Every answer carries **assumptions, limitations and a method section** generated from configuration, not written
+  by the model.
+
+## G. Key trade-offs
+
+* **Deterministic engine vs flexible LLM analysis.**
+  * Every number is reproducible and explainable; the cost is maintaining a metric catalog.
+  * An AST-whitelisted SQL tool covers the long tail, and its results are labelled exploratory.
+* **Custom loop vs agent framework.**
+  * The invariants (paired tool results, budgets, validation before display) live in a few hundred lines that are tested
+    with scripted models.
+  * A framework would have to be worked around to enforce them.
+* **Typed claims vs free prose.** Code-written comparisons and ranks cannot get a direction wrong. The prose is less
+  fluent.
+* **Bulk public files vs live APIs.** Bulk files give reproducibility and lineage. Freshness follows the publishers'
+  release schedules, and one live API covers "right now".
+* **Lexical memory vs embeddings.** References in this domain are codes, names and ids, where exact matching wins.
+  No extra service or cost is needed.
+* **Over-invalidation vs silent staleness.** Re-running an analysis is cheap; citing a finding computed under a
+  superseded definition is not.
+
+## H. Scope and limitations
+
+* **What the system measures:**
+  * passenger growth opportunity;
+  * airside congestion indicators;
+  * route and stage-length structure;
+  * demand-pressure indicators;
+  * dated regulatory and capacity records.
+* **What it cannot establish:**
+  * **Profitability:** no capital cost, revenue or lease data.
+  * **Terminal need:** public structured data has no gate or square-footage capacity.
+  * **Measured unmet demand:** no spill, booking or fare series.
+* **Coverage:**
+  * On-Time covers domestic flights of reporting carriers only, and coverage is shown per answer.
+  * T-100 passengers are segment enplanements.
+  * TAF is an unconstrained FAA forecast.
+  * Several curated records are reported rather than verified, and are labelled so.
+* **Live AI:** the LLM planners are tested against mocked provider endpoints. Live inference depends on a configured
+  provider and key.
+
+## I. Future improvements
+
+* **Terminal suitability (stage B):** dated, primary-source capacity documents (gates, square footage, master plans),
+  so the system can say whether a terminal is the binding constraint or whether the airfield or a regulation
+  dominates.
+* **Project economics (stage C):** a conditional model with analyst-supplied cost, revenue and capacity inputs. Its
+  outputs would be labelled as scenario results.
+* **Fares:** the BTS DB1B sample, for scarcity signals in unmet-demand questions.
+* **Analyst-configurable scoring (not built):**
+  * Analysts adjust weights, anchors and thresholds as named scoring profiles, and define new metrics in the
+    semantic layer.
+  * The AI may search the data for relationships and *propose* a metric or a scoring hypothesis, with its rationale
+    and evidence.
+  * A proposal never changes a score by itself. It is back-tested, reviewed and approved by an analyst.
+  * Only then is it persisted as a deterministic, versioned and tested profile, like `config/screening.toml` with
+    its `model_version`. Every score records the profile version it used.
+
+  The boundary stays where it is today: **AI proposes hypotheses; approved deterministic logic produces scores.**

@@ -234,6 +234,9 @@ def _sql(s: Session, a: dict) -> Any:
 
 def _compose(s: Session, a: dict) -> Any:
     ans = a.get("answer") or a
+    from .analysis import DEMO_NOTE, demo_scope
+    if demo_scope(s.engine) is not None and isinstance(ans, dict) and DEMO_NOTE not in (ans.get("limitations") or []):
+        ans = dict(ans, limitations=list(ans.get("limitations") or []) + [DEMO_NOTE])
     codes = {r["code"] for r in s.ctx.resolver.rows if r["code"]}
     web = getattr(s, "web", None)
     errs = validate(ans, s.ctx.store, codes, web, getattr(s, "question", None))
@@ -242,6 +245,53 @@ def _compose(s: Session, a: dict) -> Any:
                 "hint": "Put every number in a {F#} placeholder; cite findings in claims[].support; label hypotheses; "
                         "web content only via external claims with a verbatim quote."}
     return render(ans, s.ctx.store, codes, web)
+
+
+CONTEXT_CATEGORIES = ("regulatory_cap", "curfew", "runway_geometry", "capacity_rate", "terminal_project", "other")
+
+
+def _constraints(s: Session, a: dict) -> Any:
+    """Curated, dated constraint and project records for named airports, with their evidence level and whether they
+    are in effect at `as_of`. They are CONTEXT, not findings: values here are never citable numbers."""
+    import datetime
+
+    from .screening import FLAG_LEVELS, constraint_records
+    codes = [str(c).strip().upper() for c in (a.get("airports") or []) if str(c).strip()][:10]
+    if not codes:
+        raise InvalidSpec("airports: give one or more airport codes")
+    as_of = str(a.get("as_of") or datetime.date.today().isoformat())[:10]
+    recs = [r for r in constraint_records(s.ctx, as_of) if r["airport"] in codes]
+    import hashlib
+    from urllib.parse import urlparse
+    web = getattr(s, "web", None)
+    if web is None:
+        web = s.web = {}
+    out = []
+    for r in recs:
+        if r["category"] not in CONTEXT_CATEGORIES:
+            continue
+        rec = {**r, "usable_as_fact": r["evidence"] in FLAG_LEVELS and r["effective"] == "in_effect"}
+        # Primary/secondary records with a verbatim quote become external evidence (W#), cited exactly like web
+        # pages: numbers may appear only inside the verbatim quote, with the source link shown in the answer.
+        q = (r.get("evidence_quote") or "").strip()
+        # a known-dead link is not offered as a citable source (config/link_status.toml): it stays a described record
+        if r["evidence"] in FLAG_LEVELS and q and r.get("source_url") and not str(r.get("source_link", "")).startswith("HTTP"):
+            wid = next((k for k, v in web.items() if v.get("url") == r["source_url"] and v.get("text") == q), None)
+            if not wid:
+                wid = f"W{max([int(k[1:]) for k in web] or [0]) + 1}"
+                web[wid] = {"id": wid, "kind": "curated_record", "url": r["source_url"], "requested_url": r["source_url"],
+                            "title": r.get("source_title") or r["item"], "domain": urlparse(r["source_url"]).netloc,
+                            "retrieved_at": r.get("retrieved_at") or "", "sha256": hashlib.sha256(q.encode()).hexdigest(),
+                            "chars": len(q), "text": q}
+            rec["external_id"] = wid
+        out.append(rec)
+    return {"as_of": as_of, "airports": codes, "records": out,
+            "airports_without_records": [c for c in codes if not any(r["airport"] == c for r in out)],
+            "note": "Context records, not findings: describe them in words with their evidence level. Values may "
+                    "appear only inside a verbatim quote of a record with an external_id (external claim, source W#). "
+                    "Only primary or secondary evidence in effect at as_of may be stated as fact; snippet or "
+                    "unverified records are 'reported'. A conditional record holds only if its condition holds. A "
+                    "regulatory limit is a legal ceiling: it is not actual traffic and not physical terminal capacity."}
 
 
 def _finding(s: Session, a: dict) -> Any:
@@ -404,6 +454,11 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          {"type": "object", "properties": {"need": {"type": "string"}}, "required": ["need"]},
          lambda s, a: __import__("airport_analytics.information", fromlist=["check"]).check(
              str(a.get("need") or ""), web_available=bool(getattr(s, "web", None) is not None and getattr(s, "web_enabled", False)))),
+    Tool("airport_constraints",
+         "Curated dated records (caps, curfews, runway geometry, FAA capacity rates, projects) with evidence level "
+         "and in-effect status. Context only: describe in words, not as numbers.",
+         {"type": "object", "properties": {"airports": {"type": "array", "items": {"type": "string"}},
+                                           "as_of": {"type": "string"}}, "required": ["airports"]}, _constraints),
     Tool("get_finding",
          "Return full provenance of a finding (definition, sources, vintages, window, coverage, caveats, inputs, spec); "
          "reproduce=true re-executes its spec.",

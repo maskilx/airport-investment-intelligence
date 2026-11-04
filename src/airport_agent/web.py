@@ -103,7 +103,7 @@ def _ctx():
 def http_get(url: str, timeout: float = 15.0, max_redirects: int = 4) -> tuple[str, bytes, str]:
     """-> (final_url, body, content_type). Each hop is re-checked by the SSRF guard."""
     # ProxyHandler({}) removes environment proxies: through a proxy the peer-address check would see the proxy, not
-    # the origin, and a rebinding name could reach internal addresses (Grok product review #10)
+    # the origin, and a rebinding name could reach internal addresses (security review finding)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect, _SafeHTTPHandler,
                                          _SafeHTTPSHandler(context=_ctx()))
     for _ in range(max_redirects + 1):

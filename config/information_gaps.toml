@@ -1,6 +1,6 @@
 # What the agent does when a question needs information our datasets do not measure directly.
 # Read by airport_analytics.information (tool: check_information). Each concept states which of the six cases applies
-# (docs/10, "missing information"), the closest supported indicators (catalog metric ids, validated at load), what they
+# (ARCHITECTURE.md, "Evidence and validation"), the closest supported indicators (catalog metric ids, validated at load), what they
 # cannot establish, what would be needed, and the most useful next step. Edit here; no code changes needed.
 #
 # case:

@@ -12,7 +12,7 @@ from typing import Any
 from airport_analytics.evidence import Finding
 
 
-# How each source's raw file is actually obtained (verified in docs/link-audit.md). A link is labelled by what it opens:
+# How each source's raw file is actually obtained (checked with tools/link_audit.py). A link is labelled by what it opens:
 # never call a form or an index page a "raw file".
 ACCESS = {
     "bts_t100_segment": ("form", "BTS download form: the file is produced by submitting this form with the fields recorded "
