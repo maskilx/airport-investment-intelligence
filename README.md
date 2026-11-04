@@ -157,7 +157,16 @@ Providers, request budgets and data operations: **[docs/configuration.md](docs/c
 
 ## Validation and limitations
 
-**Tests.** `.venv/bin/python -m pytest` runs the offline suite; no test calls a model provider.
+**Tests.** No test calls a model provider.
+
+```bash
+.venv/bin/pip install -e ".[dev]"     # test dependencies (bootstrap.sh installs them already)
+.venv/bin/python -m pytest
+```
+
+With the full data (`bootstrap.sh`), all 269 tests run in about four minutes. On a demo-only checkout, the 68 tests
+that need no database, or only the demo dataset, run in seconds; the rest skip because they need the full database.
+
 * **Deterministic analytics:** golden values, score additivity and reproducibility, the four questions above and
   their follow-ups, the demo dataset against the full database, and a bit-for-bit rebuild.
 * **Agent behaviour:** scripted model responses cover tool calls, rejected answers and recovery, budgets,
