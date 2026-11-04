@@ -102,3 +102,17 @@ def test_agent_web_flow_persists_w_ids_separately(tmp_path):
     assert "fetch_page" in [t["name"] for t in a.tools()]
     b = Agent(ScriptedBackend([]), store=ConversationStore(tmp_path / "c.sqlite"), conv_id="c")
     assert list(b.web_evidence) == ["W1"] and "F1" in b.evidence                     # both namespaces persist, separately
+
+
+def test_peer_check_blocks_rebinding_to_private_address():
+    class S:
+        closed = False
+
+        def getpeername(self):
+            return ("::ffff:127.0.0.1", 80, 0, 0)
+
+        def close(self):
+            S.closed = True
+    with pytest.raises(WebError, match="non-public"):
+        W._check_peer(S())
+    assert S.closed

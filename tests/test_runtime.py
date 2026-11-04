@@ -324,3 +324,10 @@ def test_offline_planner_declines_topics_not_in_the_data(q):
     from airport_agent.runtime import Agent
     r = Agent(OfflineBackend()).ask(q)
     assert r.kind == "clarification" and "do not contain" in r.markdown and not r.tool_calls
+
+
+def test_plain_text_replies_may_not_carry_quantities():
+    from airport_agent.runtime import _has_numbers
+    assert _has_numbers("SFO has about twenty million passengers") and _has_numbers("SFO grew 5%")
+    assert _has_numbers("roughly ½ of flights")
+    assert not _has_numbers("Which one do you mean: PDX or PWM?") and not _has_numbers("Data for FY2025 is final.")

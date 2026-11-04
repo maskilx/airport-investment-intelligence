@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import http.client
 import ipaddress
 import re
 import socket
@@ -48,8 +49,42 @@ def _check_host(url: str) -> None:
         raise WebError(f"cannot resolve {u.hostname}: {e}") from None
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
+        if getattr(ip, "ipv4_mapped", None):
+            ip = ip.ipv4_mapped
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
             raise WebError(f"refusing to fetch a non-public address ({u.hostname})")
+
+
+def _check_peer(sock) -> None:
+    """Re-check the address actually connected to (closes the DNS-rebinding gap between check and connect)."""
+    ip = ipaddress.ip_address(sock.getpeername()[0])
+    if getattr(ip, "ipv4_mapped", None):
+        ip = ip.ipv4_mapped
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+        sock.close()
+        raise WebError("refusing a connection to a non-public address")
+
+
+class _SafeHTTPConnection(http.client.HTTPConnection):
+    def connect(self):
+        super().connect()
+        _check_peer(self.sock)
+
+
+class _SafeHTTPSConnection(http.client.HTTPSConnection):
+    def connect(self):
+        super().connect()
+        _check_peer(self.sock)
+
+
+class _SafeHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_SafeHTTPConnection, req)
+
+
+class _SafeHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_SafeHTTPSConnection, req, context=self._context)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -67,7 +102,7 @@ def _ctx():
 
 def http_get(url: str, timeout: float = 15.0, max_redirects: int = 4) -> tuple[str, bytes, str]:
     """-> (final_url, body, content_type). Each hop is re-checked by the SSRF guard."""
-    opener = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=_ctx()))
+    opener = urllib.request.build_opener(_NoRedirect, _SafeHTTPHandler, _SafeHTTPSHandler(context=_ctx()))
     for _ in range(max_redirects + 1):
         _check_host(url)
         req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "text/html,text/plain;q=0.9,*/*;q=0.1"})

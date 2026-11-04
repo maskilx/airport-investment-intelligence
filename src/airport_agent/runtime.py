@@ -19,7 +19,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from airport_analytics.render import ALLOW, PH, fmt_value
+from airport_analytics.render import ALLOW, ALLOWED_WORD_USES, NUMBER_WORDS, PH, _numeric_chars, fmt_value
 from airport_analytics.tools import Session, tool_schemas
 
 from .charts import build_charts
@@ -103,7 +103,10 @@ class TurnResult:
 
 
 def _has_numbers(text: str) -> bool:
-    return bool(re.search(r"\d", ALLOW.sub("", PH.sub("", text))))
+    """A plain-text reply (clarification / refusal) must carry no quantity: digits, number words or Unicode numerals."""
+    t = PH.sub("", text)
+    return bool(re.search(r"\d", ALLOW.sub("", t)) or NUMBER_WORDS.search(ALLOWED_WORD_USES.sub("", t))
+                or _numeric_chars(t))
 
 
 def _normalize(msgs: list[dict]) -> list[dict]:
@@ -284,9 +287,10 @@ class Agent:
         if result is None:
             made = [c for c in calls if c["tool"] == "run_analysis" and not c["error"]]
             why = "time" if time.time() - t0 > self.limits.wall_clock_s else "step"
-            result = TurnResult("fallback", "I could not produce a validated answer within the "
-                                f"{why} budget. The analyses I ran are recorded ({len(made)} successful analysis calls) and "
-                                "remain available as findings; please rephrase or narrow the question.", calls,
+            ran = "The analyses that did run are recorded and remain available as findings" if made else \
+                "No analysis completed"
+            result = TurnResult("fallback", f"I could not produce a validated answer within the {why} budget. "
+                                f"{ran}; please rephrase or narrow the question.", calls,
                                 errors=[f"no validated compose_answer within {why} budget"])
             persist("assistant", [{"type": "text", "text": result.markdown}])
         elif result.kind in ("stopped", "error"):

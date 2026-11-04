@@ -30,7 +30,8 @@ NUMBER_WORDS = re.compile(r"\b(zero|one|two|three|four|five|six|seven|eight|nine
                           r"fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|"
                           r"ninety|hundred|thousand|million|billion|trillion|dozen|half|third|quarter|percent|"
                           r"double|twice|triple|tripled|doubled|halved)\b", re.I)
-ALLOWED_WORD_USES = re.compile(r"\b(one of|at least one|no one|one or more|half-hour|quarter of an hour)\b", re.I)
+ALLOWED_WORD_USES = re.compile(r"\b(one of|at least one|no one|one or more|half-hour|quarter of an hour|which one|"
+                               r"that one|this one|the one|each one|any one|one airport|one region)\b", re.I)
 
 
 def _numeric_chars(t: str) -> list[str]:
