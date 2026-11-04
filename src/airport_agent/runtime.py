@@ -103,6 +103,34 @@ class Limits:
     max_tool_calls: int = 30
     wall_clock_s: float = 240.0
     max_tool_result_chars: int = 60_000
+    max_context_tokens: int = 60_000   # HARD per-request cap: system prompt + tool schemas + every message
+
+
+def est_request_tokens(*parts: Any) -> int:
+    """Conservative token estimate for budget enforcement: 3 chars/token over the exact JSON sent (real tokenizers
+    average ~4 chars/token on English and JSON, so this over-counts by ~25%: the cap errs on the safe side)."""
+    return sum(-(-len(p if isinstance(p, str) else json.dumps(p, default=str)) // 3) for p in parts)
+
+
+def fit_context(system: str, tools: list[dict], msgs: list[dict], limit: int) -> tuple[list[dict], int, int]:
+    """Enforce the hard cap. Oldest tool-result bodies are compacted to their finding ids first (the findings stay in
+    the evidence store); the latest user message is never cut. Returns (messages, tokens, n_compacted)."""
+    msgs = [dict(m, content=list(m["content"]) if isinstance(m["content"], list) else m["content"]) for m in msgs]
+    total = est_request_tokens(system, tools, msgs)
+    n = 0
+    for m in msgs[:-1]:
+        if total <= limit:
+            break
+        if not isinstance(m["content"], list):
+            continue
+        for i, b in enumerate(m["content"]):
+            if b.get("type") == "tool_result" and not str(b.get("content", "")).startswith('{"compacted"'):
+                ids = sorted(set(FID.findall(str(b.get("content", "")))), key=lambda x: int(x[1:]))
+                m["content"][i] = dict(b, content=json.dumps({"compacted": True, "findings": ids[:200],
+                                                              "note": "body removed for the context budget; use get_finding"}))
+                n += 1
+        total = est_request_tokens(system, tools, msgs)
+    return msgs, total, n
 
 
 @dataclass
@@ -240,11 +268,20 @@ class Agent:
                 break
             steps += 1
             emit({"type": "model_request", "turn": turn, "step": steps})
+            tools = self.tools()
+            send, ntok, ncomp = fit_context(SYSTEM_PROMPT, tools, _normalize(msgs), self.limits.max_context_tokens)
+            if ncomp:
+                emit({"type": "context_compacted", "turn": turn, "step": steps, "tool_results": ncomp, "tokens": ntok})
+            if ntok > self.limits.max_context_tokens:
+                result = TurnResult("fallback", "This turn needs more context than the configured budget allows; "
+                                    "please narrow the question.", calls, errors=[f"context {ntok} > budget"])
+                break
             try:
-                out = self.backend.complete(SYSTEM_PROMPT, _normalize(msgs), self.tools())
-            except ModelError as e:
-                emit({"type": "error", "turn": turn, "message": str(e)})
-                result = TurnResult("error", f"The model provider returned an error: {e}", calls, errors=[str(e)])
+                out = self.backend.complete(SYSTEM_PROMPT, send, tools)
+            except ModelError as e:                          # the detail goes to the trace, not to the reader
+                emit({"type": "error", "turn": turn, "message": "The model provider returned an error."})
+                result = TurnResult("error", "The model provider returned an error, so this turn stopped (no "
+                                    "fallback model is used). Details are in the trace.", calls, errors=[str(e)])
                 break
             if isinstance(out, dict):                          # legacy backends returning dicts
                 out = ModelResponse(out["content"], out.get("stop_reason", "end_turn"))
@@ -271,11 +308,25 @@ class Agent:
                     continue
                 break
             results = []
+            skip = None                                       # once set, remaining tool_uses get a paired skip result
             for u in uses:
                 name, args = u["name"], u.get("input") or {}
+                if skip is None and cancel.is_set():
+                    skip = "cancelled by the user"
+                if skip is None and len(calls) >= self.limits.max_tool_calls:
+                    skip = "tool-call budget for this turn is exhausted"
+                if skip is None and time.time() - t0 > self.limits.wall_clock_s:
+                    skip = "time budget for this turn is exhausted"
+                if skip is not None:
+                    results.append({"type": "tool_result", "tool_use_id": u["id"], "name": name,
+                                    "content": json.dumps({"error": "skipped", "message": skip})})
+                    continue
                 emit({"type": "tool_started", "turn": turn, "id": u["id"], "name": name, "input": args})
                 ts = time.time()
-                res = self._call_tool(name, args, turn, changes)
+                try:
+                    res = self._call_tool(name, args, turn, changes, cancel)
+                except Exception as e:                        # never leave a tool_use without its result
+                    res = {"error": "tool_failed", "message": f"{type(e).__name__}: {str(e)[:200]}"}
                 el = round(time.time() - ts, 3)
                 err = res.get("error") if isinstance(res, dict) else None
                 calls.append({"tool": name, "input": args, "error": err, "elapsed_s": el})
@@ -294,13 +345,17 @@ class Agent:
                         res["structured"]["evidence"] + cited) if f in self.evidence]
                     result = TurnResult("answer", res["markdown"], calls, cited, structured=res["structured"],
                                         charts=charts)
-                    break
+                    skip = "the answer was already composed"
+                    continue
+                shown = res if name not in ("fetch_page", "web_search") and len(json.dumps(res, default=str)) < 40_000 \
+                    else {"withheld": "external page text is shown only through verified quotes", **digest}
                 emit({"type": "tool_finished", "turn": turn, "id": u["id"], "name": name, "ok": not err,
-                      "elapsed_s": el, "digest": digest,
-                      "result": res if len(json.dumps(res, default=str)) < 40_000 else {"truncated": True, **digest}})
+                      "elapsed_s": el, "digest": digest, "result": shown})
                 results.append({"type": "tool_result", "tool_use_id": u["id"], "name": name,
                                 "content": json.dumps(res, default=str)[: self.limits.max_tool_result_chars]})
             persist("user", results)
+            if cancel.is_set() and result is None:
+                result = TurnResult("stopped", "Stopped by the user. Analyses already run are kept as findings.", calls)
         if result is None:
             made = [c for c in calls if c["tool"] == "run_analysis" and not c["error"]]
             why = "time" if time.time() - t0 > self.limits.wall_clock_s else "step"
@@ -337,7 +392,7 @@ class Agent:
         return result
 
     # ------------------------------------------------------------------ tools
-    def _call_tool(self, name: str, args: dict, turn: int, changes: list[dict]) -> Any:
+    def _call_tool(self, name: str, args: dict, turn: int, changes: list[dict], cancel=None) -> Any:
         if name == "recall":
             return self._recall(args)
         if name == "update_memory":
@@ -363,7 +418,7 @@ class Agent:
             except Exception as e:                                    # tool errors are information for the model
                 return {"error": "tool_failed", "message": f"{type(e).__name__}: {e}"}
         n0 = len(self.evidence)
-        res = self.session.call(name, args)
+        res = self.session.call(name, args, cancel=cancel)
         born_stale = tag_new_findings(self.evidence.added_since(n0), self.state.active_assumptions(), self.evidence)
         if born_stale and isinstance(res, dict):
             res["stale_findings"] = born_stale

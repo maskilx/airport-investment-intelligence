@@ -104,7 +104,7 @@ def screen(spec: dict, ids: list[int], notes: dict, ctx) -> dict[str, Any]:
         sc = total(svals, w)
         contrib = [wi * si for wi, si in zip(w, svals)]
         f = _new(ctx, metric_id=f"screen_score:{cfg['model_version']}", label=f"Expansion screen score — {code} ({scen_name})",
-                 value=sc, unit="points (0-100, anchored scales)", fmt="number", epistemic_class="calculated",
+                 value=sc, unit="points (anchored scale)", fmt="number", epistemic_class="calculated",
                  definition="Σ weight × anchored score of: " + "; ".join(
                      f"{c['label']} [{c['lo']}→{c['hi']}, {c['scale']}] w={wi}" for c, wi in zip(comps, w)),
                  formula_version=cfg["model_version"],

@@ -12,6 +12,8 @@ request budget, appends every call to a usage log, and has NO fallback to any ot
 from __future__ import annotations
 
 import json
+import re
+import threading
 import os
 import time
 import urllib.error
@@ -115,6 +117,9 @@ def decode_args(v: Any) -> Any:
     return v
 
 
+FREE_TIER_MODEL = re.compile(r"^gemini-[0-9.]+-flash(?:-lite)?(?:-[a-z0-9.-]+)?$")
+
+
 class GeminiBackend:
     """Google Gemini API generateContent with function calling. No SDK dependency; explicit, auditable requests."""
     name = "gemini"
@@ -127,10 +132,21 @@ class GeminiBackend:
         if not self.api_key:
             raise ModelError("no GEMINI_API_KEY in the environment")
         self.model = model or os.environ.get("AIRPORT_GEMINI_MODEL", "gemini-3.8-flash")
+        if not FREE_TIER_MODEL.match(self.model) and os.environ.get("AIRPORT_ALLOW_PAID") != "1":
+            raise ModelError(f"model {self.model!r} is not a free-tier Flash model; set AIRPORT_ALLOW_PAID=1 to allow it")
         self.max_requests = int(max_requests or os.environ.get("AIRPORT_GEMINI_MAX_REQUESTS", 25))
         self.usage_log = Path(usage_log or os.environ.get("AIRPORT_GEMINI_USAGE_LOG", "data/app/gemini_usage.jsonl"))
         self.timeout = timeout
-        self.requests = 0
+        self._lock = threading.Lock()
+        self.requests = self._requests_today()     # the budget is per UTC day and survives restarts
+
+    def _requests_today(self) -> int:
+        day = time.strftime("%Y-%m-%d", time.gmtime())
+        try:
+            with open(self.usage_log) as f:
+                return sum(1 for line in f if f'"utc_day": "{day}"' in line and '"request": true' in line)
+        except FileNotFoundError:
+            return 0
 
     # canonical -> Gemini
     @staticmethod
@@ -165,8 +181,10 @@ class GeminiBackend:
         return out
 
     def complete(self, system, messages, tools):
-        if self.requests >= self.max_requests:
-            raise ModelError(f"Gemini request budget exhausted ({self.max_requests}); stopping (no fallback)")
+        with self._lock:                                 # concurrent conversations share one budget
+            if self.requests >= self.max_requests:
+                raise ModelError(f"Gemini daily request budget exhausted ({self.max_requests}); stopping (no fallback)")
+            self.requests += 1
         body = {"systemInstruction": {"parts": [{"text": system}]},
                 "contents": self.to_contents(messages),
                 "tools": [{"functionDeclarations": [{"name": t["name"], "description": t["description"],
@@ -175,7 +193,6 @@ class GeminiBackend:
         req = urllib.request.Request(GEMINI_URL.format(model=self.model), data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key})
         t0 = time.time()
-        self.requests += 1
         try:
             import ssl
             try:
@@ -215,7 +232,8 @@ class GeminiBackend:
     def _log(self, rec: dict) -> None:
         self.usage_log.parent.mkdir(parents=True, exist_ok=True)
         with open(self.usage_log, "a") as f:
-            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), **rec}) + "\n")
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "utc_day": time.strftime("%Y-%m-%d", time.gmtime()),
+                                "request": True, **rec}) + "\n")
 
 
 # ------------------------------------------------------------------ Anthropic (kept from Phase 2; opt-in only, paid)
@@ -245,10 +263,13 @@ class AnthropicBackend:
 
 def backend_from_env() -> ModelBackend:
     """AIRPORT_MODEL=scripted|gemini. Defaults to an offline demo backend; never silently picks a paid provider."""
-    kind = os.environ.get("AIRPORT_MODEL", "offline")
+    kind = os.environ.get("AIRPORT_MODEL", "offline").strip().lower()
     if kind == "gemini":
         return GeminiBackend()
     if kind == "anthropic":
         return AnthropicBackend()
-    from .offline import OfflineBackend
-    return OfflineBackend()
+    if kind == "offline":
+        from .offline import OfflineBackend
+        return OfflineBackend()
+    # an invalid configuration must fail loudly, not silently demo the offline planner as if it were the LLM
+    raise ModelError(f"unknown AIRPORT_MODEL={kind!r} (expected offline | gemini | anthropic)")

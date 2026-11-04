@@ -5,6 +5,9 @@ built database and the request.
 """
 from __future__ import annotations
 
+import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -102,6 +105,7 @@ class Engine:
         self.con = con or connect()
         try:
             self.con.execute("SET enable_external_access = false")   # engine never needs files/network
+            self.con.execute("SET enable_progress_bar = false")
         except Exception:
             pass
         self._avail: dict[str, list] = {}
@@ -110,6 +114,33 @@ class Engine:
         self.taf_last_historical = self.con.execute(
             "SELECT max(fiscal_year) FROM v_taf_enplanements WHERE record_type = 'historical'").fetchone()[0]
         self.build = self._build_fingerprint()
+
+    @contextmanager
+    def guard(self, timeout_s: float, cancel: "threading.Event | None" = None):
+        """Hard limit on everything executed inside: a watcher interrupts the DuckDB connection on timeout or on
+        cancellation, so a slow query is stopped mid-flight (a row LIMIT is not a time limit)."""
+        done, why = threading.Event(), {}
+
+        def watch():
+            t_end = time.monotonic() + timeout_s
+            while not done.wait(0.05):
+                if cancel is not None and cancel.is_set():
+                    why["reason"] = "cancelled"
+                elif time.monotonic() > t_end:
+                    why["reason"] = "timeout"
+                if why:
+                    try:
+                        self.con.interrupt()
+                    except Exception:
+                        pass
+                    return
+        w = threading.Thread(target=watch, daemon=True)
+        w.start()
+        try:
+            yield why
+        finally:
+            done.set()
+            w.join(1)
 
     def _build_fingerprint(self) -> dict[str, Any]:
         """Identity of the data build every finding was computed from (recorded in execution envelopes)."""

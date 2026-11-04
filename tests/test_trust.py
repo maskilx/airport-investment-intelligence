@@ -5,6 +5,7 @@ Each test encodes a failure mode found by an independent review, not just the ha
 from __future__ import annotations
 
 import copy
+import json
 
 import pytest
 
@@ -290,3 +291,88 @@ def test_legitimate_answers_still_pass(S, ev):
     assert not errs(S, {"headline": "LAX traffic in 2025", "body": f"LAX carried {{{f}}} in CY2025.",
                         "claims": [{"kind": "fact", "text": f"LAX carried {{{f}}} ({{{f}.period}}).", "support": [f]}],
                         "assumptions": ["Passengers are T-100 segment passengers (all carriers)."]})
+
+
+# ---------------------------------------------------------------- stage 4: runtime hardening
+def test_every_tool_use_is_paired_when_compose_is_not_last():
+    """Grok product review #7: a successful compose_answer followed by another tool_use left it unpaired."""
+    from airport_agent.models import ScriptedBackend
+    from airport_agent.runtime import Agent
+    a = Agent(ScriptedBackend([
+        [_tu(1, "run_analysis", {"spec": {"op": "aggregate", "metrics": ["seat_factor"], "entities": {"airports": ["SFO"]}}})],
+        [_tu(2, "compose_answer", {"answer": {"headline": "SFO", "body": "{F1}"}}), _tu(3, "recall", {"query": "x"})]]))
+    r = a.ask("seat factor SFO")
+    assert r.kind == "answer"
+    uses, results = set(), set()
+    for m in a.store.messages(a.conv_id):
+        for b in m["content"] if isinstance(m["content"], list) else []:
+            if b.get("type") == "tool_use":
+                uses.add(b["id"])
+            elif b.get("type") == "tool_result":
+                results.add(b["tool_use_id"])
+    assert uses == results
+
+
+def test_tool_call_budget_is_enforced_within_a_step():
+    from airport_agent.models import ScriptedBackend
+    from airport_agent.runtime import Agent, Limits
+    many = [_tu(i, "describe_catalog", {}) for i in range(8)]
+    a = Agent(ScriptedBackend([many, [{"type": "text", "text": "ok"}]]), limits=Limits(max_tool_calls=3))
+    r = a.ask("q")
+    assert len(r.tool_calls) == 3                                        # not 8
+
+
+def test_cancel_interrupts_an_in_flight_query(S):
+    import threading
+    import time
+    cancel = threading.Event()
+    threading.Timer(0.3, cancel.set).start()
+    t0 = time.time()
+    r = S.call("query_sql", {"sql": "SELECT count(*) AS n FROM v_t100_segment a, v_t100_segment b "
+                                    "WHERE a.passengers > b.passengers"}, cancel=cancel)
+    assert r.get("error") and time.time() - t0 < 3
+    assert S.call("query_sql", {"sql": "SELECT count(*) AS n FROM dim_airport"})["rows"]   # connection still usable
+
+
+def test_hard_context_budget_compacts_old_tool_results():
+    from airport_agent.runtime import est_request_tokens, fit_context
+    big = json.dumps({"rows": [{"id": f"F{i}", "v": "x" * 200} for i in range(400)]})
+    msgs = [{"role": "user", "content": "q"},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "a", "name": "run_analysis", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "a", "content": big}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "next"}]},
+            {"role": "user", "content": "final question"}]
+    out, tok, n = fit_context("sys", [], msgs, 5_000)
+    assert n == 1 and tok <= 5_000 and est_request_tokens("sys", [], msgs) > 5_000
+    body = json.loads(out[2]["content"][0]["content"])
+    assert body["compacted"] and "F199" in body["findings"] and out[-1]["content"] == "final question"
+
+
+def test_invalid_model_config_fails_loudly_and_paid_models_need_opt_in(monkeypatch, tmp_path):
+    from airport_agent import models
+    monkeypatch.setenv("AIRPORT_MODEL", "gemni")
+    with pytest.raises(models.ModelError):
+        models.backend_from_env()
+    monkeypatch.setenv("AIRPORT_ALLOW_GEMINI", "1")
+    monkeypatch.delenv("AIRPORT_ALLOW_PAID", raising=False)
+    with pytest.raises(models.ModelError):
+        models.GeminiBackend(model="gemini-3-pro", api_key="k", usage_log=tmp_path / "u.jsonl")
+
+
+def test_gemini_daily_budget_survives_restart(monkeypatch, tmp_path):
+    import time
+    from airport_agent import models
+    monkeypatch.setenv("AIRPORT_ALLOW_GEMINI", "1")
+    log = tmp_path / "u.jsonl"
+    day = time.strftime("%Y-%m-%d", time.gmtime())
+    log.write_text("".join(json.dumps({"utc_day": day, "request": True}) + "\n" for _ in range(3)))
+    g = models.GeminiBackend(model="gemini-3.8-flash", api_key="k", usage_log=log, max_requests=3)
+    with pytest.raises(models.ModelError, match="budget"):
+        g.complete("s", [{"role": "user", "content": "q"}], [])
+
+
+def test_web_fetch_ignores_environment_proxies():
+    """Grok #10: through an environment proxy the post-connect peer check would see the proxy, not the origin.
+    (Source-level check: exercising it for real needs a proxy and a rebinding DNS name.)"""
+    from airport_agent import web
+    assert "urllib.request.ProxyHandler({})" in open(web.__file__).read()

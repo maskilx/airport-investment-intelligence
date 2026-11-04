@@ -113,7 +113,7 @@ def _gemini(monkeypatch, tmp_path, handler, **kw):
         seen.append(json.loads(req.data))
         return handler(req)
     monkeypatch.setattr(models.urllib.request, "urlopen", fake_urlopen)
-    return GeminiBackend(model="gemini-test", api_key="k", usage_log=tmp_path / "u.jsonl", **kw), seen
+    return GeminiBackend(model="gemini-3.8-flash", api_key="k", usage_log=tmp_path / "u.jsonl", **kw), seen
 
 
 def test_gemini_parses_function_calls_usage_and_logs(monkeypatch, tmp_path):
@@ -243,7 +243,7 @@ def test_provider_error_is_reported_not_retried_elsewhere():
             raise ModelError("quota reached (429); no fallback")
     from airport_agent.runtime import Agent
     r = Agent(Boom()).ask("q")
-    assert r.kind == "error" and "429" in r.markdown
+    assert r.kind == "error" and "429" in r.errors[0] and not any(ch.isdigit() for ch in r.markdown)   # detail in trace only
 
 
 @needs_db

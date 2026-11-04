@@ -27,6 +27,10 @@ VIEW_SOURCES = {"v_t100_segment": "bts_t100_segment", "v_ontime_flight": "bts_on
                 "v_county_econ_annual": "bea_cainc1", "curated_constraint": "curated_constraints"}
 
 
+TOOL_TIMEOUT_S = {"query_sql": 5.0, "run_analysis": 60.0, "get_finding": 60.0, "derive": 5.0,
+                  "resolve_entities": 10.0, "describe_catalog": 10.0, "compose_answer": 10.0}
+
+
 @dataclass
 class Tool:
     name: str
@@ -40,16 +44,23 @@ class Session:
         self.engine = engine or Engine()
         self.ctx = Context(self.engine, Resolver(self.engine.con), EvidenceStore())
 
-    def call(self, name: str, args: dict[str, Any]) -> Any:
+    def call(self, name: str, args: dict[str, Any], cancel=None) -> Any:
+        """Every outcome is a JSON result (never an exception), so every tool_use gets a paired tool_result."""
         tool = TOOLS.get(name)
         if not tool:
             return {"error": "unknown_tool", "message": name, "tools": list(TOOLS)}
-        try:
-            return tool.handler(self, args or {})
-        except AnalyticsError as e:
-            return e.to_dict()
-        except (KeyError, TypeError, ValueError) as e:
-            return {"error": "invalid_request", "message": f"{type(e).__name__}: {e}"}
+        with self.engine.guard(TOOL_TIMEOUT_S.get(name, 60.0), cancel) as stopped:
+            try:
+                return tool.handler(self, args or {})
+            except AnalyticsError as e:
+                return e.to_dict()
+            except (KeyError, TypeError, ValueError) as e:
+                return {"error": "invalid_request", "message": f"{type(e).__name__}: {e}"}
+            except Exception as e:                       # duckdb.Error, interrupts, anything else from the engine
+                if stopped.get("reason"):
+                    return {"error": stopped["reason"], "message": f"{name} was stopped ({stopped['reason']}); "
+                            "narrow the request" if stopped["reason"] == "timeout" else f"{name} was cancelled"}
+                return {"error": "engine_error", "message": f"{type(e).__name__}: {str(e)[:200]}"}
 
 
 # ------------------------------------------------------------------ handlers

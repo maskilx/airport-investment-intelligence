@@ -55,7 +55,7 @@ class App:
         self.web_enabled = os.environ.get("AIRPORT_WEB", "1") != "0" and getattr(self.backend, "name", "") not in ("offline",)
         self.web_factory = None
         self.agents: dict[str, Agent] = {}
-        self.cancels: dict[str, threading.Event] = {}
+        self.cancels: dict[str, set[threading.Event]] = {}     # one event per in-flight turn (never overwritten)
         self.lock = threading.Lock()
 
     def agent(self, cid: str) -> Agent:
@@ -117,7 +117,8 @@ def create_app(state: App | None = None) -> FastAPI:
         loop = asyncio.get_running_loop()
         q: asyncio.Queue = asyncio.Queue()
         cancel = threading.Event()
-        st.cancels[cid] = cancel
+        with st.lock:
+            st.cancels.setdefault(cid, set()).add(cancel)
 
         def emit(e: dict):
             loop.call_soon_threadsafe(q.put_nowait, e)
@@ -125,9 +126,13 @@ def create_app(state: App | None = None) -> FastAPI:
         def run():
             try:
                 agent.ask(m.text, on_event=emit, cancel=cancel)
-            except Exception as e:                       # surface, never hang the stream
-                emit({"type": "error", "message": f"{type(e).__name__}: {e}"})
+            except Exception as e:                       # surface (number-free), never hang the stream
+                import logging
+                logging.getLogger("airport_app").exception("turn failed: %s", e)
+                emit({"type": "error", "message": "The turn failed unexpectedly; details are in the server log."})
             finally:
+                with st.lock:
+                    st.cancels.get(cid, set()).discard(cancel)
                 emit({"type": "done"})
 
         threading.Thread(target=run, daemon=True).start()
@@ -143,10 +148,11 @@ def create_app(state: App | None = None) -> FastAPI:
 
     @api.post("/api/conversations/{cid}/cancel")
     def cancel(cid: str):
-        ev = st.cancels.get(cid)
-        if ev:
+        with st.lock:
+            evs = list(st.cancels.get(cid, ()))
+        for ev in evs:                                   # stops every in-flight turn of this conversation
             ev.set()
-        return {"cancelled": bool(ev)}
+        return {"cancelled": bool(evs), "turns": len(evs)}
 
     @api.get("/api/conversations/{cid}/findings/{fid}")
     def finding(cid: str, fid: str):
